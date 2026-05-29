@@ -209,10 +209,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             if (canvas != null) {
                 canvas.drawColor(android.graphics.Color.BLACK);
 
-                int drawWidth = mVisibleArea != null ? mVisibleArea.width() : canvas.getWidth();
-                int drawHeight = mVisibleArea != null ? mVisibleArea.height() : canvas.getHeight();
-                int offsetX = mVisibleArea != null ? mVisibleArea.left : 0;
-                int offsetY = mVisibleArea != null ? mVisibleArea.top : 0;
+                // Tegn alltid bakgrunnsbildet over hele skjermen (full canvas)
+                int drawWidth = canvas.getWidth();
+                int drawHeight = canvas.getHeight();
+                int offsetX = 0;
+                int offsetY = 0;
 
                 // HOME: skalér til å passe begge dimensjoner (fit-both), andre: skalér etter bredde
                 float scale;
@@ -241,10 +242,17 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                     Rect textBounds = new Rect();
                     textPaint.getTextBounds(displayTimestamp, 0, displayTimestamp.length(), textBounds);
                     int textPadding = 16, edgeMargin = 40;
-                    int rectLeft   = offsetX + drawWidth  - textBounds.width()  - textPadding * 2 - edgeMargin;
-                    int rectTop    = offsetY + drawHeight - textBounds.height() - textPadding * 2 - edgeMargin;
-                    int rectRight  = offsetX + drawWidth  - edgeMargin;
-                    int rectBottom = offsetY + drawHeight - edgeMargin;
+                    
+                    // Plasser tidsstempelet relativt til det synlige området for å unngå at det dekkes over
+                    int vWidth = mVisibleArea != null ? mVisibleArea.width() : canvas.getWidth();
+                    int vHeight = mVisibleArea != null ? mVisibleArea.height() : canvas.getHeight();
+                    int vLeft = mVisibleArea != null ? mVisibleArea.left : 0;
+                    int vTop = mVisibleArea != null ? mVisibleArea.top : 0;
+
+                    int rectLeft   = vLeft + vWidth  - textBounds.width()  - textPadding * 2 - edgeMargin;
+                    int rectTop    = vTop + vHeight - textBounds.height() - textPadding * 2 - edgeMargin;
+                    int rectRight  = vLeft + vWidth  - edgeMargin;
+                    int rectBottom = vTop + vHeight - edgeMargin;
                     canvas.drawRect(rectLeft, rectTop, rectRight, rectBottom, bgPaint);
                     canvas.drawText(displayTimestamp, rectLeft + textPadding, rectBottom - textPadding, textPaint);
                 }
