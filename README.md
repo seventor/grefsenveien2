@@ -31,13 +31,25 @@ The application fetches a live-updated security camera image from an Amazon S3 b
 - `ActionTileService.java` - Native Wear OS Tile provider that handles the swipe-accessible widget.
 - `MainActivity.java` - Basic fallback activity for the Wear OS app grid.
 
-## Building and Testing
+## Run locally
 
-1. Clone the project in Android Studio.
-2. Create the required `local.properties` secrets file (see Configuration section below).
-3. Sync Gradle files.
-4. Run the `app` module on a Desktop Head Unit (DHU) via the command line or on a connected Android phone.
-5. Run the `wear` module on a paired Wear OS watch or emulator.
+1. Clone the project and open it in **Android Studio**.
+2. Create `local.properties` with `sdk.dir` and your secret URLs (see [Configuration & Secrets](#configuration--secrets-local-setup) below).
+3. Sync Gradle (**File → Sync Project with Gradle Files**).
+4. Connect a physical Android phone with USB debugging enabled.
+5. Install and run the **`app`** module on the phone, or use the **Desktop Head Unit (DHU)** emulator for the full Android Auto UI.
+
+**Detailed testing guide (phone, DHU, car, Wear OS, troubleshooting):** [TESTING.md](TESTING.md)
+
+Quick start for Android Auto on DHU:
+
+```bash
+./gradlew :app:installDebug
+adb forward tcp:5277 tcp:5277
+desktop-head-unit -c square_dhu.ini   # or mache_dhu.ini
+```
+
+Ensure `adb` and `desktop-head-unit` are on your `PATH` — see [TESTING.md](TESTING.md#forutsetninger).
 
 ## Configuration & Secrets (Local Setup)
 

@@ -10,8 +10,8 @@ android {
         applicationId "com.pixelspore.grefsenveien"
         minSdk 23
         targetSdk 35
-        versionCode 13
-        versionName "2.10"
+        versionCode 14
+        versionName "2.11"
 
         // Load URLs from local.properties
         def localProperties = new Properties()
@@ -25,6 +25,8 @@ android {
         buildConfigField "String", "S3_IMAGE_URL", "\"${localProperties.getProperty('S3_IMAGE_URL', '')}\""
         buildConfigField "String", "S3_MAILBOX_IMAGE_URL", "\"${localProperties.getProperty('S3_MAILBOX_IMAGE_URL', '')}\""
         buildConfigField "String", "DOORBELL_TAKE_IMAGE_URL", "\"${localProperties.getProperty('DOORBELL_TAKE_IMAGE_URL', '')}\""
+        buildConfigField "String", "HA_BASE_URL", "\"${localProperties.getProperty('HA_BASE_URL', '')}\""
+        buildConfigField "String", "HA_TOKEN", "\"${localProperties.getProperty('HA_TOKEN', '')}\""
     }
 
     buildFeatures {
