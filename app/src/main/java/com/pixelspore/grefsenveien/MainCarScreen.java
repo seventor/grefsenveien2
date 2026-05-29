@@ -71,9 +71,16 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private float valSoverom = 22.2f;
     private float valGang4 = 22.6f;
     private float valVaskerom = 23.7f;
+    private long valStueMotionTime = 0L;
+    private long valLoftsgangMotionTime = 0L;
+    private long valGang4MotionTime = 0L;
+    private long valJonatanMotionTime = 0L;
+    private long valBadMotionTime = 0L;
+    private long valVaskeromMotionTime = 0L;
 
     private float valSolarHourly = 0f;
     private float[] valSolar24h = new float[24];
+    private float valHumidity = 45f;
 
     private final android.os.Handler mUpdateHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable mImageUpdater = new Runnable() {
@@ -215,14 +222,14 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 int offsetX = 0;
                 int offsetY = 0;
 
-                // HOME: skalér til å passe begge dimensjoner (fit-both), andre: skalér etter bredde
+                // HOME: skalér til å passe begge dimensjoner (fit-both), andre: cover (fyll hele skjermen)
+                float scaleW = (float) drawWidth / displayBitmap.getWidth();
+                float scaleH = (float) drawHeight / displayBitmap.getHeight();
                 float scale;
                 if (currentMode == ViewMode.HOME) {
-                    float scaleW = (float) drawWidth / displayBitmap.getWidth();
-                    float scaleH = (float) drawHeight / displayBitmap.getHeight();
                     scale = Math.min(scaleW, scaleH);
                 } else {
-                    scale = (float) drawWidth / displayBitmap.getWidth();
+                    scale = Math.max(scaleW, scaleH);
                 }
 
                 int scaledWidth  = Math.round(displayBitmap.getWidth()  * scale);
@@ -236,25 +243,35 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 if (displayTimestamp != null && !displayTimestamp.isEmpty()) {
                     Paint textPaint = new Paint();
                     textPaint.setColor(android.graphics.Color.WHITE);
-                    textPaint.setTextSize(26f); textPaint.setAntiAlias(true);
-                    Paint bgPaint = new Paint();
-                    bgPaint.setColor(android.graphics.Color.BLACK); bgPaint.setAlpha(200);
-                    Rect textBounds = new Rect();
-                    textPaint.getTextBounds(displayTimestamp, 0, displayTimestamp.length(), textBounds);
-                    int textPadding = 16, edgeMargin = 40;
+                    textPaint.setTextSize(24f);
+                    textPaint.setAntiAlias(true);
                     
-                    // Plasser tidsstempelet relativt til det synlige området for å unngå at det dekkes over
                     int vWidth = mVisibleArea != null ? mVisibleArea.width() : canvas.getWidth();
                     int vHeight = mVisibleArea != null ? mVisibleArea.height() : canvas.getHeight();
                     int vLeft = mVisibleArea != null ? mVisibleArea.left : 0;
                     int vTop = mVisibleArea != null ? mVisibleArea.top : 0;
 
-                    int rectLeft   = vLeft + vWidth  - textBounds.width()  - textPadding * 2 - edgeMargin;
-                    int rectTop    = vTop + vHeight - textBounds.height() - textPadding * 2 - edgeMargin;
-                    int rectRight  = vLeft + vWidth  - edgeMargin;
-                    int rectBottom = vTop + vHeight - edgeMargin;
-                    canvas.drawRect(rectLeft, rectTop, rectRight, rectBottom, bgPaint);
-                    canvas.drawText(displayTimestamp, rectLeft + textPadding, rectBottom - textPadding, textPaint);
+                    if (currentMode == ViewMode.HOME) {
+                        // Place at absolute canvas top, aligned with the Action buttons in the system padding area
+                        float textX = 12f;
+                        float textY = 56f;
+                        canvas.drawText(displayTimestamp, textX, textY, textPaint);
+                    } else {
+                        // Bottom-right placement with black background box for camera modes
+                        Paint bgPaint = new Paint();
+                        bgPaint.setColor(android.graphics.Color.BLACK);
+                        bgPaint.setAlpha(200);
+                        Rect textBounds = new Rect();
+                        textPaint.getTextBounds(displayTimestamp, 0, displayTimestamp.length(), textBounds);
+                        int textPadding = 16, edgeMargin = 40;
+                        
+                        int rectLeft   = vLeft + vWidth  - textBounds.width()  - textPadding * 2 - edgeMargin;
+                        int rectTop    = vTop + vHeight - textBounds.height() - textPadding * 2 - edgeMargin;
+                        int rectRight  = vLeft + vWidth  - edgeMargin;
+                        int rectBottom = vTop + vHeight - edgeMargin;
+                        canvas.drawRect(rectLeft, rectTop, rectRight, rectBottom, bgPaint);
+                        canvas.drawText(displayTimestamp, rectLeft + textPadding, rectBottom - textPadding, textPaint);
+                    }
                 }
 
                 mSurfaceContainer.getSurface().unlockCanvasAndPost(canvas);
@@ -823,11 +840,27 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             valStue = fetchSensorState("sensor.stue_temperatur_temperature", curTemp + 1.8f);
             valGang3 = fetchSensorState("sensor.innergang_temperatur_temperature_2", curTemp + 0.2f);
             valSoverom = fetchSensorState("sensor.soverom_temperatur_temperature", curTemp - 1.1f);
-            valGang4 = fetchSensorState("sensor.inngang_temperatur_temperature", curTemp - 0.7f);
             valVaskerom = fetchSensorState("sensor.vaskerom_temperatur_temperature", curTemp + 0.4f);
+            valHumidity = fetchSensorState("sensor.vaerstasjon_humidity", 45f);
+
+            // Fetch motion histories
+            valStueMotionTime = Math.max(
+                fetchMotionHistory("binary_sensor.stue_ved_vindu_bevegelsessensor_occupancy", now, isoFmt),
+                fetchMotionHistory("binary_sensor.stue_innerst_bevegelsessensor_occupancy", now, isoFmt)
+            );
+            valLoftsgangMotionTime = fetchMotionHistory("binary_sensor.loftsgang_bevegelsessensor_occupancy", now, isoFmt);
+            valGang4MotionTime = fetchMotionHistory("binary_sensor.inngang_bevegelsessensor_motion_detection", now, isoFmt);
+            valJonatanMotionTime = fetchMotionHistory("binary_sensor.jonatan_bevegelsessensor_occupancy", now, isoFmt);
+            valBadMotionTime = fetchMotionHistory("binary_sensor.stort_bad_bevegelsessensor_occupancy", now, isoFmt);
+            valVaskeromMotionTime = fetchMotionHistory("binary_sensor.vaskerom_bevegelsessensor_occupancy", now, isoFmt);
 
             try {
-                Bitmap chart = renderTemperatureChart(tempPoints, rainByDay, hourlyRain, soilPoints, 1440, 2080);
+                // Bruk faktisk canvas-størrelse for å fylle hele skjermen
+                int chartW = mSurfaceContainer != null
+                        ? mSurfaceContainer.getWidth() : 1440;
+                int chartH = mSurfaceContainer != null
+                        ? mSurfaceContainer.getHeight() : 2080;
+                Bitmap chart = renderTemperatureChart(tempPoints, rainByDay, hourlyRain, soilPoints, chartW, chartH);
                 SimpleDateFormat disp = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
                 String ts = "Oppdatert " + disp.format(new Date(now));
                 getCarContext().getMainExecutor().execute(() -> {
@@ -868,6 +901,12 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         boolean hasSoilData = soilPoints != null && !soilPoints.isEmpty();
         if (hasSoilData) {
             soilPoints.sort((a, b) -> Float.compare(b[0], a[0]));
+            if (soilPoints.get(0)[0] < 72f) {
+                soilPoints.add(0, new float[]{72f, soilPoints.get(0)[1]});
+            }
+            if (soilPoints.get(soilPoints.size() - 1)[0] > 0f) {
+                soilPoints.add(new float[]{0f, soilPoints.get(soilPoints.size() - 1)[1]});
+            }
             actualMinS = Float.MAX_VALUE;
             actualMaxS = -Float.MAX_VALUE;
             for (float[] p : soilPoints) {
@@ -881,361 +920,247 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
         Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
-        c.drawColor(android.graphics.Color.parseColor("#0D1117"));
+        c.drawColor(android.graphics.Color.BLACK);
 
-        // --- 0. Standardized Widget Grid Layout (2 columns, 4 rows) ---
+        // === PROPORTIONAL SCALE FACTOR ===
+        float S = w / 1440f;
+
+        // === PAINTS (scaled text sizes) ===
         Paint gridP = new Paint();
         gridP.setColor(android.graphics.Color.parseColor("#1E2A38")); gridP.setStrokeWidth(2f);
-        Paint lblP = new Paint();
-        lblP.setAntiAlias(true); lblP.setColor(android.graphics.Color.WHITE); lblP.setTextSize(26f);
-        
-        Paint lblPy = new Paint();
-        lblPy.setAntiAlias(true); lblPy.setColor(android.graphics.Color.WHITE); lblPy.setTextSize(26f);
-        lblPy.setTextAlign(Paint.Align.RIGHT);
-        
-        Paint lblHdr = new Paint(); lblHdr.setAntiAlias(true); lblHdr.setColor(android.graphics.Color.WHITE);
-        lblHdr.setTextSize(26f); lblHdr.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-        
-        Paint lblVal = new Paint(); lblVal.setAntiAlias(true); lblVal.setColor(android.graphics.Color.WHITE);
-        lblVal.setTextSize(26f); lblVal.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-        
-        float cardW = 712f;
-        float gap = 16f;
-        float cW = cardW - 105f; // 607f
-        float cH = 150f;
-        
-        float col1Left = 0f;
-        float col1Right = cardW;
-        float col2Left = cardW + gap; // 728f
-        float col2Right = 1440f;
-        
-        // Midten: Utetemperatur
+        float baseTxt = 15f * S;
+        float axisTxt = Math.max(13f, 17f * S);
+        float hdrTxt = Math.max(17f, 23f * S);
+        Paint lblP = new Paint(); lblP.setAntiAlias(true); lblP.setColor(android.graphics.Color.WHITE); lblP.setTextSize(axisTxt);
+        Paint lblPy = new Paint(); lblPy.setAntiAlias(true); lblPy.setColor(android.graphics.Color.WHITE); lblPy.setTextSize(axisTxt); lblPy.setTextAlign(Paint.Align.RIGHT);
+        Paint lblHdr = new Paint(); lblHdr.setAntiAlias(true); lblHdr.setColor(android.graphics.Color.WHITE); lblHdr.setTextSize(hdrTxt); lblHdr.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        Paint lblVal = new Paint(); lblVal.setAntiAlias(true); lblVal.setColor(android.graphics.Color.WHITE); lblVal.setTextSize(hdrTxt); lblVal.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        Paint barLblP = new Paint(); barLblP.setAntiAlias(true); barLblP.setColor(android.graphics.Color.WHITE); barLblP.setTextSize(axisTxt);
+        Paint dayLblP = new Paint(); dayLblP.setAntiAlias(true); dayLblP.setColor(android.graphics.Color.WHITE); dayLblP.setTextSize(axisTxt);
+
+        // === 3-COLUMN GRID ===
+        float gap = 14f * S;
+        float colW = (w - 2f * gap) / 3f;
+        float col1L = 0f, col1R = colW;
+        float col2L = colW + gap, col2R = 2f * colW + gap;
+        float col3L = 2f * (colW + gap), col3R = (float) w;
         float curTemp = points.get(points.size() - 1)[1];
 
-        // ==========================================
-        // ROW COORDINATES DEFINITION
-        // ==========================================
-        // We leave 110f pixels of vertical breathing room at the very top (luft)
-        // so that template action buttons on CarPlay/AA do not overlap the widgets.
-        float r1Top = 110f, r1Bottom = 390f;
-        float r2Top = 414f, r2Bottom = 694f;
-        float r3Top = 718f, r3Bottom = 998f;
-        
-        // --- 1. UTETEMPERATUR WIDGET (Slot 1) ---
-        float tLeft = col1Left, tRight = col1Right;
-        drawWidgetCard(c, tLeft, r1Top, tRight, r1Bottom);
-        c.drawText("UTETEMPERATUR", tLeft + 30f, r1Top + 45f, lblHdr);
-        String tHdrStr = String.format(Locale.getDefault(), "Min %.1f°  Maks %.1f°", minT, maxT);
-        c.drawText(tHdrStr, tRight - 30f - lblVal.measureText(tHdrStr), r1Top + 45f, lblVal);
-        
-        float tGraphLeft = tLeft + 75f;
-        float tGraphTop = r1Top + 70f;
-        for (int i = 0; i <= 5; i++) {
-            float frac = i / 5f;
-            float y = tGraphTop + cH * (1 - frac);
-            c.drawLine(tGraphLeft, y, tGraphLeft + cW, y, gridP);
-            c.drawText(String.format(Locale.getDefault(), "%.0f°", minT + range * frac), tGraphLeft - 18f, y + 10f, lblPy);
-        }
-        for (int hr = 0; hr <= 24; hr += 6) {
-            float x = tGraphLeft + cW * (1f - hr / 24f);
-            c.drawLine(x, tGraphTop, x, tGraphTop + cH, gridP);
-            long ms = System.currentTimeMillis() - hr * 3_600_000L;
-            c.drawText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(ms)), x - 32f, tGraphTop + cH + 32f, lblP);
-        }
-        Paint fillP = new Paint();
-        fillP.setColor(android.graphics.Color.parseColor("#1A3B82F6")); fillP.setStyle(Paint.Style.FILL); fillP.setAntiAlias(true);
-        Path fillPath = new Path();
-        fillPath.moveTo(tGraphLeft + cW * (1f - points.get(0)[0] / 24f), tGraphTop + cH);
-        for (float[] p : points) fillPath.lineTo(tGraphLeft + cW * (1f - p[0] / 24f), tGraphTop + cH * (1f - (p[1] - minT) / range));
-        fillPath.lineTo(tGraphLeft + cW * (1f - points.get(points.size()-1)[0] / 24f), tGraphTop + cH);
-        fillPath.close();
-        c.drawPath(fillPath, fillP);
-        Paint lineP = new Paint();
-        lineP.setColor(android.graphics.Color.parseColor("#3B82F6")); lineP.setStrokeWidth(4f);
-        lineP.setStyle(Paint.Style.STROKE); lineP.setAntiAlias(true);
-        lineP.setStrokeJoin(Paint.Join.ROUND); lineP.setStrokeCap(Paint.Cap.ROUND);
+        // === ROW LAYOUT ===
+        float topPad = h * 0.105f;
+        float rowGap = 12f * S;
+        float usableH = h - topPad - 3f * rowGap;
+        float chartRowH = usableH * 0.21f;
+        float camRowH = usableH * 0.27f;
+        float roomH = usableH * 0.31f;
+        float r1Top = topPad, r1Bot = r1Top + chartRowH;
+        float r2Top = r1Bot + rowGap, r2Bot = r2Top + chartRowH;
+        float r3Top = r2Bot + rowGap, r3Bot = r3Top + camRowH;
+        float r4Top = r3Bot + rowGap;
+
+        float wPad = Math.max(14f, 20f * S);
+        float hdrOff = Math.max(24f, 32f * S);
+        float gLeft = Math.max(42f, 58f * S);
+        float gTopOff = Math.max(38f, 52f * S);
+        float gBotOff = Math.max(26f, 35f * S);
+        float xAxisYOffset = Math.max(18f, 25f * S);
+        float tGW = colW - gLeft - wPad;
+        float tGH = chartRowH - gTopOff - gBotOff;
+
+        // === ROW 1: Utetemperatur | Aktuelt temp | Regn 7 dager ===
+        drawWidgetCard(c, col1L, r1Top, col1R, r1Bot);
+        c.drawText("UTE 24t", col1L + wPad, r1Top + hdrOff, lblHdr);
+        String tHdr = String.format(Locale.getDefault(), "%.1f\u00b0\u2013%.1f\u00b0", minT, maxT);
+        c.drawText(tHdr, col1R - wPad - lblVal.measureText(tHdr), r1Top + hdrOff, lblVal);
+        float tGL = col1L + gLeft, tGT = r1Top + gTopOff;
+        for (int i = 0; i <= 4; i++) { float frac = i/4f, y = tGT + tGH*(1-frac); c.drawLine(tGL, y, tGL+tGW, y, gridP); c.drawText(String.format(Locale.getDefault(), "%.0f\u00b0", minT+range*frac), tGL-4f*S, y+6f*S, lblPy); }
+        for (int hr = 0; hr <= 24; hr += 6) { float x = tGL+tGW*(1f-hr/24f); c.drawLine(x, tGT, x, tGT+tGH, gridP);
+            String sl = new SimpleDateFormat("HH", Locale.getDefault()).format(new Date(System.currentTimeMillis()-hr*3_600_000L));
+            c.drawText(sl, x-lblP.measureText(sl)/2f, tGT+tGH+xAxisYOffset, lblP); }
+        Paint fillP = new Paint(); fillP.setColor(android.graphics.Color.parseColor("#1A3B82F6")); fillP.setStyle(Paint.Style.FILL); fillP.setAntiAlias(true);
+        Path fillPath = new Path(); fillPath.moveTo(tGL+tGW*(1f-points.get(0)[0]/24f), tGT+tGH);
+        for (float[] p : points) fillPath.lineTo(tGL+tGW*(1f-p[0]/24f), tGT+tGH*(1f-(p[1]-minT)/range));
+        fillPath.lineTo(tGL+tGW*(1f-points.get(points.size()-1)[0]/24f), tGT+tGH); fillPath.close(); c.drawPath(fillPath, fillP);
+        Paint lineP = new Paint(); lineP.setColor(android.graphics.Color.parseColor("#3B82F6")); lineP.setStrokeWidth(3f*S); lineP.setStyle(Paint.Style.STROKE); lineP.setAntiAlias(true); lineP.setStrokeJoin(Paint.Join.ROUND); lineP.setStrokeCap(Paint.Cap.ROUND);
         Path linePath = new Path(); boolean first = true;
-        for (float[] p : points) {
-            float x = tGraphLeft + cW * (1f - p[0] / 24f);
-            float y = tGraphTop + cH * (1f - (p[1] - minT) / range);
-            if (first) { linePath.moveTo(x, y); first = false; } else linePath.lineTo(x, y);
-        }
+        for (float[] p : points) { float x = tGL+tGW*(1f-p[0]/24f), y = tGT+tGH*(1f-(p[1]-minT)/range); if (first) { linePath.moveTo(x, y); first = false; } else linePath.lineTo(x, y); }
         c.drawPath(linePath, lineP);
 
-        // --- 2. AKTUELT UTETEMPERATUR WIDGET (Slot 2, Row 1 Right) ---
-        float tempLeft = col2Left, tempRight = col2Right;
-        drawWidgetCard(c, tempLeft, r1Top, tempRight, r1Bottom);
-        c.drawText("AKTUELT UTETEMPERATUR", tempLeft + 30f, r1Top + 45f, lblHdr);
+        // --- Aktuelt Utetemperatur ---
+        drawWidgetCard(c, col2L, r1Top, col2R, r1Bot);
+        c.drawText("N\u00c5", col2L + wPad, r1Top + hdrOff, lblHdr);
+        Paint naP = new Paint(); naP.setAntiAlias(true); naP.setColor(android.graphics.Color.WHITE); naP.setTextSize(44f*S); naP.setTypeface(Typeface.DEFAULT_BOLD);
+        String tempStr = String.format(Locale.getDefault(), "%.1f\u00b0C", curTemp);
+        String humStr = String.format(Locale.getDefault(), "%.0f%%", valHumidity);
+        float tempTextW = naP.measureText(tempStr);
+        float humTextW = naP.measureText(humStr);
+        float iconSize = 36f * S;
+        float iconTextGap = 6f * S;
+        float groupGap = 20f * S;
+        float totalW = iconSize + iconTextGap + tempTextW + groupGap + iconSize + iconTextGap + humTextW;
+        float startX = col2L + (colW - totalW) / 2f;
+        float textY = r1Top + chartRowH * 0.51f + (naP.getTextSize() * 0.33f);
+        float iconY = textY - naP.getTextSize() * 0.78f;
+        try {
+            android.graphics.drawable.Drawable thermD = androidx.core.content.ContextCompat.getDrawable(getCarContext(), R.drawable.ic_thermometer);
+            if (thermD != null) {
+                thermD.setBounds((int) startX, (int) iconY, (int) (startX + iconSize), (int) (iconY + iconSize));
+                thermD.draw(c);
+            } else {
+                drawThermometerIcon(c, startX, iconY, iconSize, S, naP);
+            }
+        } catch (Exception e) {
+            drawThermometerIcon(c, startX, iconY, iconSize, S, naP);
+        }
+        c.drawText(tempStr, startX + iconSize + iconTextGap, textY, naP);
         
-        Paint curTempP = new Paint();
-        curTempP.setAntiAlias(true); curTempP.setColor(android.graphics.Color.WHITE);
-        curTempP.setTextSize(82f); curTempP.setTypeface(Typeface.DEFAULT_BOLD);
-        String curTempStr = String.format(Locale.getDefault(), "%.1f°C", curTemp);
-        float curTempW = curTempP.measureText(curTempStr);
-        c.drawText(curTempStr, tempLeft + (cardW - curTempW) / 2f, r1Top + 150f, curTempP);
-        
-        Paint curMinMaxP = new Paint();
-        curMinMaxP.setAntiAlias(true); curMinMaxP.setColor(android.graphics.Color.parseColor("#AAAAAA"));
-        curMinMaxP.setTextSize(26f);
-        String curMinMaxStr = String.format(Locale.getDefault(), "Min %.1f°   Maks %.1f°", minT, maxT);
-        float curMinMaxW = curMinMaxP.measureText(curMinMaxStr);
-        c.drawText(curMinMaxStr, tempLeft + (cardW - curMinMaxW) / 2f, r1Top + 220f, curMinMaxP);
+        float humGroupX = startX + iconSize + iconTextGap + tempTextW + groupGap;
+        try {
+            android.graphics.drawable.Drawable dropD = androidx.core.content.ContextCompat.getDrawable(getCarContext(), R.drawable.ic_droplet);
+            if (dropD != null) {
+                dropD.setBounds((int) humGroupX, (int) iconY, (int) (humGroupX + iconSize), (int) (iconY + iconSize));
+                dropD.draw(c);
+            } else {
+                drawDropletIcon(c, humGroupX, iconY, iconSize, S, naP);
+            }
+        } catch (Exception e) {
+            drawDropletIcon(c, humGroupX, iconY, iconSize, S, naP);
+        }
+        c.drawText(humStr, humGroupX + iconSize + iconTextGap, textY, naP);
 
-        // ==========================================
-        // ROW 2: 3. Rain 7d (Left) & 4. Soil Moisture (Right)
-        // ==========================================
-
-        
-        // --- 3. REGN SISTE 7 DAGER (Slot 3) ---
-        float r7Left = col1Left, r7Right = col1Right;
-        drawWidgetCard(c, r7Left, r2Top, r7Right, r2Bottom);
-        c.drawText("REGN 7 DAGER", r7Left + 30f, r2Top + 45f, lblHdr);
+        // --- Regn 7 dager ---
+        drawWidgetCard(c, col3L, r1Top, col3R, r1Bot);
+        c.drawText("REGN 7d", col3L + wPad, r1Top + hdrOff, lblHdr);
         float totalRain = 0; for (float v : rainByDay) totalRain += v;
-        String totalRainStr = String.format(Locale.getDefault(), "Totalt %.1f mm", totalRain);
-        c.drawText(totalRainStr, r7Right - 30f - lblVal.measureText(totalRainStr), r2Top + 45f, lblVal);
-        
-        float r7GraphLeft = r7Left + 75f;
-        float r7GraphTop = r2Top + 70f;
-        c.drawLine(r7GraphLeft, r7GraphTop, r7GraphLeft + cW, r7GraphTop, gridP);
-        c.drawLine(r7GraphLeft, r7GraphTop + cH, r7GraphLeft + cW, r7GraphTop + cH, gridP);
-        float maxRain = 1f;
-        for (float r : rainByDay) maxRain = Math.max(maxRain, r);
-        c.drawText(String.format(Locale.getDefault(), "%.1f", maxRain), r7GraphLeft - 18f, r7GraphTop + 20f, lblPy);
-        c.drawText("0.0", r7GraphLeft - 18f, r7GraphTop + cH + 10f, lblPy);
-        
-        float barGap = cW / 7f;
-        float barW = barGap * 0.55f;
-        String[] dayNames = {"I dag", "I går", "2d", "3d", "4d", "5d", "6d"};
+        c.drawText(String.format(Locale.getDefault(), "%.1f mm", totalRain), col3R-wPad-lblVal.measureText(String.format(Locale.getDefault(), "%.1f mm", totalRain)), r1Top+hdrOff, lblVal);
+        float r7GL = col3L+gLeft, r7GT = r1Top+gTopOff, r7GW = tGW, r7GH = tGH;
+        c.drawLine(r7GL, r7GT, r7GL+r7GW, r7GT, gridP); c.drawLine(r7GL, r7GT+r7GH, r7GL+r7GW, r7GT+r7GH, gridP);
+        float maxRain = 1f; for (float r : rainByDay) maxRain = Math.max(maxRain, r);
+        c.drawText(String.format(Locale.getDefault(), "%.1f", maxRain), r7GL-4f*S, r7GT+14f*S, lblPy);
+        float bGap = r7GW/7f, bW = bGap*0.55f;
+        String[] dayNames = new String[7];
+        dayNames[0] = "I dag";
+        java.text.SimpleDateFormat daySdf = new java.text.SimpleDateFormat("E", new java.util.Locale("no", "NO"));
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        for (int i = 1; i < 7; i++) {
+            java.util.Calendar tempCal = (java.util.Calendar) cal.clone();
+            tempCal.add(java.util.Calendar.DAY_OF_YEAR, -i);
+            String name = daySdf.format(tempCal.getTime());
+            if (name.endsWith(".")) name = name.substring(0, name.length() - 1);
+            if (name.length() > 0) name = name.substring(0, 1).toUpperCase() + name.substring(1);
+            dayNames[i] = name;
+        }
         Paint barP = new Paint(); barP.setAntiAlias(true);
-        Paint barLblP = new Paint(); barLblP.setAntiAlias(true); barLblP.setColor(android.graphics.Color.WHITE); barLblP.setTextSize(24f);
-        Paint dayLblP = new Paint(); dayLblP.setAntiAlias(true); dayLblP.setColor(android.graphics.Color.WHITE); dayLblP.setTextSize(24f);
-        for (int i = 0; i < 7; i++) {
-            float barCenterX = r7GraphLeft + cW - barGap * i - barGap / 2f;
-            float barHeight = rainByDay[i] > 0 ? cH * (rainByDay[i] / maxRain) : 4f;
-            float barTop = r7GraphTop + cH - barHeight;
-            float barLeft = barCenterX - barW / 2f;
-            float barRight = barCenterX + barW / 2f;
-            
-            barP.setShader(new android.graphics.LinearGradient(
-                0, r7GraphTop + cH,
-                0, barTop,
-                android.graphics.Color.parseColor("#1B6ADF"), // Bottom color
-                android.graphics.Color.parseColor("#4FA5F7"), // Top color
-                android.graphics.Shader.TileMode.CLAMP
-            ));
-            // Draw top-rounded rect (radius 8f)
-            c.drawRoundRect(barLeft, barTop, barRight, r7GraphTop + cH + 12f, 8f, 8f, barP);
-            
-            if (rainByDay[i] > 0) {
-                String valStr = String.format(Locale.getDefault(), "%.1f", rainByDay[i]);
-                float valW = barLblP.measureText(valStr);
-                c.drawText(valStr, barCenterX - valW / 2f, barTop - 6f, barLblP);
-            }
-            float dnW = dayLblP.measureText(dayNames[i]);
-            c.drawText(dayNames[i], barCenterX - dnW / 2f, r7GraphTop + cH + 32f, dayLblP);
-        }
+        for (int i = 0; i < 7; i++) { float bCX = r7GL+r7GW-bGap*i-bGap/2f; float bH = rainByDay[i]>0 ? r7GH*(rainByDay[i]/maxRain) : 3f; float bT = r7GT+r7GH-bH;
+            barP.setShader(new android.graphics.LinearGradient(0, r7GT+r7GH, 0, bT, android.graphics.Color.parseColor("#1B6ADF"), android.graphics.Color.parseColor("#4FA5F7"), android.graphics.Shader.TileMode.CLAMP));
+            c.drawRoundRect(bCX-bW/2f, bT, bCX+bW/2f, r7GT+r7GH+6f*S, 6f*S, 6f*S, barP);
+            c.drawText(dayNames[i], bCX-dayLblP.measureText(dayNames[i])/2f, r7GT+r7GH+xAxisYOffset, dayLblP); }
 
-        // --- 4. REGNSTYRKE WIDGET (Slot 4, Row 2 Right) ---
-        float rrLeft = col2Left, rrRight = col2Right;
-        drawWidgetCard(c, rrLeft, r2Top, rrRight, r2Bottom);
-        c.drawText("REGNSTYRKE", rrLeft + 30f, r2Top + 45f, lblHdr);
-        float maxHourlyRain = 0.5f;
-        for (float r : hourlyRain) maxHourlyRain = Math.max(maxHourlyRain, r);
-        String maxRainRateStr = String.format(Locale.getDefault(), "Maks %.1f mm/t", maxHourlyRain);
-        c.drawText(maxRainRateStr, rrRight - 30f - lblVal.measureText(maxRainRateStr), r2Top + 45f, lblVal);
-        
-        float rrGraphLeft = rrLeft + 75f;
-        float rrGraphTop = r2Top + 70f;
-        c.drawLine(rrGraphLeft, rrGraphTop, rrGraphLeft + cW, rrGraphTop, gridP);
-        c.drawLine(rrGraphLeft, rrGraphTop + cH, rrGraphLeft + cW, rrGraphTop + cH, gridP);
-        c.drawText(String.format(Locale.getDefault(), "%.1f", maxHourlyRain), rrGraphLeft - 18f, rrGraphTop + 20f, lblPy);
-        c.drawText("0.0", rrGraphLeft - 18f, rrGraphTop + cH + 10f, lblPy);
-        
-        float hBarGap = cW / 24f;
-        float hBarW = hBarGap * 0.65f;
-        Paint hBarP = new Paint();
-        hBarP.setAntiAlias(true);
-        for (int i = 0; i < 24; i++) {
-            float barCenterX = rrGraphLeft + cW - hBarGap * i - hBarGap / 2f;
-            float barHeight = hourlyRain[i] > 0 ? cH * (hourlyRain[i] / maxHourlyRain) : 2f;
-            float barTop = rrGraphTop + cH - barHeight;
-            float barLeft = barCenterX - hBarW / 2f;
-            float barRight = barCenterX + hBarW / 2f;
-            
-            hBarP.setShader(new android.graphics.LinearGradient(
-                0, rrGraphTop + cH,
-                0, barTop,
-                android.graphics.Color.parseColor("#1B6ADF"), // Bottom color
-                android.graphics.Color.parseColor("#4FA5F7"), // Top color
-                android.graphics.Shader.TileMode.CLAMP
-            ));
-            // Draw top-rounded rect (radius 4f)
-            c.drawRoundRect(barLeft, barTop, barRight, rrGraphTop + cH + 8f, 4f, 4f, hBarP);
-            
-            if (hourlyRain[i] >= 0.1f) {
-                String valStr = String.format(Locale.getDefault(), "%.1f", hourlyRain[i]);
-                Paint valP = new Paint(); valP.setAntiAlias(true); valP.setColor(android.graphics.Color.WHITE); valP.setTextSize(18f);
-                float valW = valP.measureText(valStr);
-                c.drawText(valStr, barCenterX - valW / 2f, barTop - 4f, valP);
-            }
-        }
-        for (int hr = 0; hr <= 24; hr += 6) {
-            float x = rrGraphLeft + cW * (1f - hr / 24f);
-            c.drawLine(x, rrGraphTop, x, rrGraphTop + cH, gridP);
-            long ms = System.currentTimeMillis() - hr * 3_600_000L;
-            c.drawText(new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(ms)), x - 32f, rrGraphTop + cH + 32f, lblP);
-        }
+        // === ROW 2: Regnstyrke | Solstraling | Jordfuktighet ===
+        // --- Regnstyrke ---
+        drawWidgetCard(c, col1L, r2Top, col1R, r2Bot);
+        c.drawText("REGNSTYRKE", col1L+wPad, r2Top+hdrOff, lblHdr);
+        float maxHR = 0.0f; for (float r : hourlyRain) maxHR = Math.max(maxHR, r);
+        c.drawText(String.format(Locale.getDefault(), "%.1f mm/t", maxHR), col1R-wPad-lblVal.measureText(String.format(Locale.getDefault(), "%.1f mm/t", maxHR)), r2Top+hdrOff, lblVal);
+        float rrGL = col1L+gLeft, rrGT = r2Top+gTopOff, rrGW = tGW, rrGH = tGH;
+        c.drawLine(rrGL, rrGT, rrGL+rrGW, rrGT, gridP); c.drawLine(rrGL, rrGT+rrGH, rrGL+rrGW, rrGT+rrGH, gridP);
+        float hbGap = rrGW/24f, hbW = hbGap*0.65f;
+        Paint hBarP = new Paint(); hBarP.setAntiAlias(true);
+        float divMaxHR = maxHR > 0f ? maxHR : 1f;
+        for (int i = 0; i < 24; i++) { float bCX = rrGL+rrGW-hbGap*i-hbGap/2f; float bH = hourlyRain[i]>0 ? rrGH*(hourlyRain[i]/divMaxHR) : 2f; float bT = rrGT+rrGH-bH;
+            hBarP.setShader(new android.graphics.LinearGradient(0, rrGT+rrGH, 0, bT, android.graphics.Color.parseColor("#1B6ADF"), android.graphics.Color.parseColor("#4FA5F7"), android.graphics.Shader.TileMode.CLAMP));
+            c.drawRoundRect(bCX-hbW/2f, bT, bCX+hbW/2f, rrGT+rrGH+4f*S, 3f*S, 3f*S, hBarP); }
+        for (int hr = 0; hr <= 24; hr += 6) { float x = rrGL+rrGW*(1f-hr/24f); c.drawLine(x, rrGT, x, rrGT+rrGH, gridP);
+            String sl = new SimpleDateFormat("HH", Locale.getDefault()).format(new Date(System.currentTimeMillis()-hr*3_600_000L));
+            c.drawText(sl, x-lblP.measureText(sl)/2f, rrGT+rrGH+xAxisYOffset, lblP); }
 
-        // ==========================================
-        // ROW 3: 5. Solar (Left) & 6. Gårdsplassen (Right)
-        // ==========================================
-
-        
-        // --- 5. SOLSTRALING WIDGET (Slot 5) ---
-        float solLeft = col1Left, solRight = col1Right;
-        drawWidgetCard(c, solLeft, r3Top, solRight, r3Bottom);
-        c.drawText("SOLSTRALING", solLeft + 30f, r3Top + 45f, lblHdr);
-        float sTotal = 0f;
-        for (float v : valSolar24h) sTotal += v;
-        String sTotalStr = String.format(Locale.getDefault(), "%.2f kWh/m²", sTotal);
-        c.drawText(sTotalStr, solRight - 30f - lblVal.measureText(sTotalStr), r3Top + 45f, lblVal);
-        
-        float solGraphLeft = solLeft + 75f;
-        float solGraphTop = r3Top + 65f;
-        float sMaxBarH = 150f;
-        float sBarAreaLeft = solGraphLeft;
-        float sBarAreaWidth = cW;
-        float sGap = 2f;
-        float sBarW = (sBarAreaWidth - 23f * sGap) / 24f;
-        float sMaxVal = 0.1f;
-        for (float v : valSolar24h) sMaxVal = Math.max(sMaxVal, v);
+        // --- Solstraling ---
+        drawWidgetCard(c, col2L, r2Top, col2R, r2Bot);
+        c.drawText("SOL", col2L+wPad, r2Top+hdrOff, lblHdr);
+        float sTotal = 0f; for (float v : valSolar24h) sTotal += v;
+        String solValStr = String.format(Locale.getDefault(), "I dag %.2f kWh/m\u00b2", sTotal);
+        c.drawText(solValStr, col2R-wPad-lblVal.measureText(solValStr), r2Top+hdrOff, lblVal);
+        float solGL = col2L+gLeft, solGT = r2Top+gTopOff, solGW = tGW, solGH = tGH;
+        float sMaxVal = 0.1f; for (float v : valSolar24h) sMaxVal = Math.max(sMaxVal, v);
+        float sGp = 1f*S, sBW = (solGW-23f*sGp)/24f;
         Paint sBarP = new Paint(); sBarP.setAntiAlias(true);
-        for (int i = 0; i < 24; i++) {
-            float x = sBarAreaLeft + (23 - i) * (sBarW + sGap);
-            float barH = valSolar24h[i] > 0 ? (valSolar24h[i] / sMaxVal) * sMaxBarH : 2f;
-            float top = solGraphTop + sMaxBarH - barH;
-            
-            sBarP.setShader(new android.graphics.LinearGradient(
-                0, solGraphTop + sMaxBarH,
-                0, top,
-                android.graphics.Color.parseColor("#E68A4F"), // Bottom warm orange-yellow
-                android.graphics.Color.parseColor("#FFC107"), // Top sun yellow
-                android.graphics.Shader.TileMode.CLAMP
-            ));
-            // Draw top-rounded rect (radius 4f)
-            c.drawRoundRect(x, top, x + sBarW, solGraphTop + sMaxBarH + 8f, 4f, 4f, sBarP);
-        }
-        for (int hr = 0; hr <= 24; hr += 6) {
-            float x = solGraphLeft + cW * (1f - hr / 24f);
-            c.drawLine(x, solGraphTop, x, solGraphTop + sMaxBarH, gridP);
-            long ms = System.currentTimeMillis() - hr * 3_600_000L;
-            String label = new SimpleDateFormat("H", Locale.getDefault()).format(new Date(ms));
-            float labelW = lblP.measureText(label);
-            c.drawText(label, x - labelW / 2f, solGraphTop + sMaxBarH + 34f, lblP);
-        }
+        for (int i = 0; i < 24; i++) { float x = solGL+(23-i)*(sBW+sGp); float bH = valSolar24h[i]>0 ? (valSolar24h[i]/sMaxVal)*solGH : 2f; float top = solGT+solGH-bH;
+            sBarP.setShader(new android.graphics.LinearGradient(0, solGT+solGH, 0, top, android.graphics.Color.parseColor("#E68A4F"), android.graphics.Color.parseColor("#FFC107"), android.graphics.Shader.TileMode.CLAMP));
+            c.drawRoundRect(x, top, x+sBW, solGT+solGH+4f*S, 3f*S, 3f*S, sBarP); }
+        for (int hr = 0; hr <= 24; hr += 6) { float x = solGL+solGW*(1f-hr/24f); c.drawLine(x, solGT, x, solGT+solGH, gridP);
+            String sl = new SimpleDateFormat("H", Locale.getDefault()).format(new Date(System.currentTimeMillis()-hr*3_600_000L));
+            c.drawText(sl, x-lblP.measureText(sl)/2f, solGT+solGH+xAxisYOffset, lblP); }
 
-        // --- 6. JORDFUKTIGHET WIDGET (Slot 6, Row 3 Right) ---
-        float sLeft = col2Left, sRight = col2Right;
-        drawWidgetCard(c, sLeft, r3Top, sRight, r3Bottom);
-        c.drawText("JORDFUKTIGHET", sLeft + 30f, r3Top + 45f, lblHdr);
-        float rangeS = maxS - minS;
-        if (rangeS < 1f) rangeS = 1f;
-        String soilStr = hasSoilData 
-            ? String.format(Locale.getDefault(), "Nå %.0f%% (Min %.0f%%  Maks %.0f%%)", curSoil, actualMinS, actualMaxS)
-            : "Ingen data";
-        c.drawText(soilStr, sRight - 30f - lblVal.measureText(soilStr), r3Top + 45f, lblVal);
-        
-        float sGraphLeft = sLeft + 75f;
-        float sGraphTop = r3Top + 70f;
-        for (int i = 0; i <= 5; i++) {
-            float frac = i / 5f;
-            float y = sGraphTop + cH * (1 - frac);
-            c.drawLine(sGraphLeft, y, sGraphLeft + cW, y, gridP);
-            c.drawText(String.format(Locale.getDefault(), "%.0f%%", minS + rangeS * frac), sGraphLeft - 18f, y + 10f, lblPy);
-        }
+        // --- Jordfuktighet ---
+        drawWidgetCard(c, col3L, r2Top, col3R, r2Bot);
+        c.drawText("JORD", col3L+wPad, r2Top+hdrOff, lblHdr);
+        float rangeS = maxS - minS; if (rangeS < 1f) rangeS = 1f;
+        String soilStr = hasSoilData ? String.format(Locale.getDefault(), "%.0f%%", curSoil) : "?";
+        c.drawText(soilStr, col3R-wPad-lblVal.measureText(soilStr), r2Top+hdrOff, lblVal);
+        float sGL = col3L+gLeft, sGT = r2Top+gTopOff, sGW = tGW, sGH = tGH;
+        for (int i = 0; i <= 4; i++) { float frac = i/4f, y = sGT+sGH*(1-frac); c.drawLine(sGL, y, sGL+sGW, y, gridP); c.drawText(String.format(Locale.getDefault(), "%.0f%%", minS+rangeS*frac), sGL-4f*S, y+6f*S, lblPy); }
         if (hasSoilData) {
-            float soilBarGap = cW / 3f;
+            String[] soilDays = {"N\u00e5", "1d", "2d", "3d"};
             for (int d = 0; d <= 3; d++) {
-                float x = sGraphLeft + cW * (1f - d / 3f);
-                c.drawLine(x, sGraphTop, x, sGraphTop + cH, gridP);
-                if (d < 3) {
-                    float dayCenterX = sGraphLeft + cW - soilBarGap * d - soilBarGap / 2f;
-                    float dnW = dayLblP.measureText(dayNames[d]);
-                    c.drawText(dayNames[d], dayCenterX - dnW / 2f, sGraphTop + cH + 32f, dayLblP);
-                }
+                float x = sGL+sGW*(1f-d/3f);
+                c.drawLine(x, sGT, x, sGT+sGH, gridP);
+                c.drawText(soilDays[d], x-lblP.measureText(soilDays[d])/2f, sGT+sGH+xAxisYOffset, lblP);
             }
-            Paint fillPS = new Paint();
-            fillPS.setColor(android.graphics.Color.parseColor("#1A3B82F6")); fillPS.setStyle(Paint.Style.FILL); fillPS.setAntiAlias(true);
-            Path fillPathS = new Path();
-            fillPathS.moveTo(sGraphLeft + cW * (1f - soilPoints.get(0)[0] / 72f), sGraphTop + cH);
-            for (float[] p : soilPoints) fillPathS.lineTo(sGraphLeft + cW * (1f - p[0] / 72f), sGraphTop + cH * (1f - (p[1] - minS) / rangeS));
-            fillPathS.lineTo(sGraphLeft + cW * (1f - soilPoints.get(soilPoints.size()-1)[0] / 72f), sGraphTop + cH);
-            fillPathS.close();
-            c.drawPath(fillPathS, fillPS);
-            Paint linePS = new Paint();
-            linePS.setColor(android.graphics.Color.parseColor("#3B82F6")); // DodgerBlue/iOS Blue
-            linePS.setStrokeWidth(4f); linePS.setStyle(Paint.Style.STROKE); linePS.setAntiAlias(true);
-            linePS.setStrokeJoin(Paint.Join.ROUND); linePS.setStrokeCap(Paint.Cap.ROUND);
+            Paint fillPS = new Paint(); fillPS.setColor(android.graphics.Color.parseColor("#1A3B82F6")); fillPS.setStyle(Paint.Style.FILL); fillPS.setAntiAlias(true);
+            Path fillPathS = new Path(); fillPathS.moveTo(sGL+sGW*(1f-soilPoints.get(0)[0]/72f), sGT+sGH);
+            for (float[] p : soilPoints) fillPathS.lineTo(sGL+sGW*(1f-p[0]/72f), sGT+sGH*(1f-(p[1]-minS)/rangeS));
+            fillPathS.lineTo(sGL+sGW*(1f-soilPoints.get(soilPoints.size()-1)[0]/72f), sGT+sGH); fillPathS.close(); c.drawPath(fillPathS, fillPS);
+            Paint linePS = new Paint(); linePS.setColor(android.graphics.Color.parseColor("#3B82F6")); linePS.setStrokeWidth(3f*S); linePS.setStyle(Paint.Style.STROKE); linePS.setAntiAlias(true); linePS.setStrokeJoin(Paint.Join.ROUND); linePS.setStrokeCap(Paint.Cap.ROUND);
             Path linePathS = new Path(); boolean firstS = true;
-            for (float[] p : soilPoints) {
-                float x = sGraphLeft + cW * (1f - p[0] / 72f);
-                float y = sGraphTop + cH * (1f - (p[1] - minS) / rangeS);
-                if (firstS) { linePathS.moveTo(x, y); firstS = false; } else linePathS.lineTo(x, y);
-            }
+            for (float[] p : soilPoints) { float x = sGL+sGW*(1f-p[0]/72f), y = sGT+sGH*(1f-(p[1]-minS)/rangeS); if (firstS) { linePathS.moveTo(x, y); firstS = false; } else linePathS.lineTo(x, y); }
             c.drawPath(linePathS, linePS);
         } else {
-            Paint noDataP = new Paint(); noDataP.setColor(android.graphics.Color.GRAY); noDataP.setTextSize(36f); noDataP.setAntiAlias(true);
-            String noDataText = "Ingen data tilgjengelig";
-            c.drawText(noDataText, sGraphLeft + (cW - noDataP.measureText(noDataText)) / 2f, sGraphTop + cH / 2f, noDataP);
+            for (int d = 0; d <= 3; d++) {
+                float x = sGL+sGW*(1f-d/3f);
+                c.drawLine(x, sGT, x, sGT+sGH, gridP);
+            }
+            Paint noDP = new Paint(); noDP.setColor(android.graphics.Color.GRAY); noDP.setTextSize(baseTxt); noDP.setAntiAlias(true); c.drawText("Ingen data", sGL+sGW*0.2f, sGT+sGH/2f, noDP);
         }
 
-        // ==========================================
-        // ROW 4: 7. Gårdsplassen (Left) & 8. Postkassen (Right)
-        // ==========================================
-        float r4Top = 1022f, r4Bottom = 1460f;
-        
-        // --- Gårdsplassen Camera on Row 4 Left ---
-        drawCameraWidget(c, cameraBitmap, "GÅRDSPLASSEN", imageTimestamp, col1Left, r4Top, col1Right, r4Bottom);
+        // === ROW 3: Cameras ===
+        float camW = (w - gap) / 2f;
+        drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, 0f, r3Top, camW, r3Bot);
+        drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, camW+gap, r3Top, (float) w, r3Bot);
 
-        // --- Postkassen Camera on Row 4 Right ---
-        drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, col2Left, r4Top, col2Right, r4Bottom);
+        // === ROOM TEMPERATURES ===
+        float gapRoom = 8f * S;
+        float roomCardH = (roomH - 3f * gapRoom) / 4f;
+        float gridY = r4Top;
 
-        // --- Kontroll & Tid Widget: Dropped to leave open space on Row 3 Right ---
+        // Row 1: 3 cards (Attic / Loft level)
+        float rw3 = ((float) w - 2f * gapRoom) / 3f;
+        drawRoomCard(c, "Jonatan", valJonatan, 0f, gridY, rw3, roomCardH, valJonatanMotionTime);
+        drawRoomCard(c, "Loftsgang", valLoftsgang, rw3+gapRoom, gridY, rw3, roomCardH, valLoftsgangMotionTime);
+        drawRoomCard(c, "Kontor", valKontor, 2f*(rw3+gapRoom), gridY, rw3, roomCardH, 0L);
 
-        // === 5. ROMTEMPERATURER GRID (Y: 1480 -> 1956) ===
-        
-        float startX = 0f;
-        float totalWidth = 1440f;
-        float gapRoom = 12f;
-        float cardH = 110f;
-        float gridY = 1480f;
-        
-        // Row 1: Jonatan, Loftsgang, Kontor
-        float row1W = (totalWidth - 2 * gapRoom) / 3f;
-        drawRoomCard(c, "Jonatan", valJonatan, startX, gridY, row1W, cardH);
-        drawRoomCard(c, "Loftsgang", valLoftsgang, startX + row1W + gapRoom, gridY, row1W, cardH);
-        drawRoomCard(c, "Kontor", valKontor, startX + 2 * (row1W + gapRoom), gridY, row1W, cardH);
-        
-        // Row 2: Bad, Kjøkken, Lite bad, Mats
-        gridY += cardH + gapRoom;
-        float row2W = (totalWidth - 3 * gapRoom) / 4f;
-        drawRoomCard(c, "Bad", valBad, startX, gridY, row2W, cardH);
-        drawRoomCard(c, "Kjøkken", valKjokken, startX + row2W + gapRoom, gridY, row2W, cardH);
-        drawRoomCard(c, "Lite bad", valLiteBad, startX + 2 * (row2W + gapRoom), gridY, row2W, cardH);
-        drawRoomCard(c, "Mats", valMats, startX + 3 * (row2W + gapRoom), gridY, row2W, cardH);
-        
-        // Row 3: Vinterhage, Stue, Gang, Soverom
-        gridY += cardH + gapRoom;
-        drawRoomCard(c, "Vinterhage", valVinterhage, startX, gridY, row2W, cardH);
-        drawRoomCard(c, "Stue", valStue, startX + row2W + gapRoom, gridY, row2W, cardH);
-        drawRoomCard(c, "Gang", valGang3, startX + 2 * (row2W + gapRoom), gridY, row2W, cardH);
-        drawRoomCard(c, "Soverom", valSoverom, startX + 3 * (row2W + gapRoom), gridY, row2W, cardH);
-        
-        // Row 4: Gang, Vaskerom
-        gridY += cardH + gapRoom;
-        float row4W = (totalWidth - gapRoom) / 2f;
-        drawRoomCard(c, "Gang", valGang4, startX, gridY, row4W, cardH);
-        drawRoomCard(c, "Vaskerom", valVaskerom, startX + row4W + gapRoom, gridY, row4W, cardH);
+        gridY += roomCardH + gapRoom;
+
+        // Row 2: 4 cards (First floor / Overetasje)
+        float rw4 = ((float) w - 3f * gapRoom) / 4f;
+        drawRoomCard(c, "Bad", valBad, 0f, gridY, rw4, roomCardH, valBadMotionTime);
+        drawRoomCard(c, "Kj\u00f8kken", valKjokken, rw4+gapRoom, gridY, rw4, roomCardH, 0L);
+        drawRoomCard(c, "Lite bad", valLiteBad, 2f*(rw4+gapRoom), gridY, rw4, roomCardH, 0L);
+        drawRoomCard(c, "Mats", valMats, 3f*(rw4+gapRoom), gridY, rw4, roomCardH, 0L);
+
+        gridY += roomCardH + gapRoom;
+
+        // Row 3: 4 cards (Main floor / Hovedetasje)
+        drawRoomCard(c, "Vinterhage", valVinterhage, 0f, gridY, rw4, roomCardH, 0L);
+        drawRoomCard(c, "Stue", valStue, rw4+gapRoom, gridY, rw4, roomCardH, valStueMotionTime);
+        drawRoomCard(c, "Gang", valGang3, 2f*(rw4+gapRoom), gridY, rw4, roomCardH, 0L);
+        drawRoomCard(c, "Soverom", valSoverom, 3f*(rw4+gapRoom), gridY, rw4, roomCardH, 0L);
+
+        gridY += roomCardH + gapRoom;
+
+        // Row 4: 2 cards (Basement / Underetasje)
+        float rw2 = ((float) w - gapRoom) / 2f;
+        drawRoomCard(c, "Gang", valGang4, 0f, gridY, rw2, roomCardH, valGang4MotionTime);
+        drawRoomCard(c, "Vaskerom", valVaskerom, rw2+gapRoom, gridY, rw2, roomCardH, valVaskeromMotionTime);
 
         return bmp;
     }
@@ -1264,6 +1189,47 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             android.util.Log.e("GrefsenveienApp", "Failed to fetch state for " + entityId, e);
         }
         return fallbackValue;
+    }
+
+    private long fetchMotionHistory(String entityId, long now, java.text.SimpleDateFormat isoFmt) {
+        long motionTime = 0L;
+        try {
+            String urlStr = BuildConfig.HA_BASE_URL + "/api/history/period/"
+                    + isoFmt.format(new java.util.Date(now - 24L * 3600_000))
+                    + "?filter_entity_id=" + entityId
+                    + "&end_time=" + isoFmt.format(new java.util.Date(now));
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(urlStr).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Authorization", "Bearer " + BuildConfig.HA_TOKEN);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setConnectTimeout(4000);
+            conn.setReadTimeout(4000);
+            conn.connect();
+            if (conn.getResponseCode() == 200) {
+                String json = new String(conn.getInputStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                conn.disconnect();
+                org.json.JSONArray outer = new org.json.JSONArray(json);
+                if (outer.length() > 0) {
+                    org.json.JSONArray states = outer.getJSONArray(0);
+                    for (int i = 0; i < states.length(); i++) {
+                        org.json.JSONObject obj = states.getJSONObject(i);
+                        String state = obj.getString("state");
+                        if ("on".equals(state)) {
+                            long ts = parseIsoTimestamp(obj.getString("last_changed"));
+                            if (ts > motionTime) {
+                                motionTime = ts;
+                            }
+                        }
+                    }
+                }
+            } else {
+                conn.disconnect();
+            }
+        } catch (Exception e) {
+            android.util.Log.w("GrefsenveienApp", "Failed to fetch motion history for " + entityId, e);
+        }
+        return motionTime;
     }
 
     private int interpolateColor(int c1, int c2, float fraction) {
@@ -1308,48 +1274,82 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     }
 
-    private void drawRoomCard(android.graphics.Canvas canvas, String name, float temp, float x, float y, float w, float h) {
+    private void drawRoomCard(android.graphics.Canvas canvas, String name, float temp, float x, float y, float w, float h, long motionTime) {
         int color = getTemperatureColor(temp);
+        float radius = h * 0.16f;
+        float strokeW = Math.max(1.5f, h * 0.04f);
         
         android.graphics.Paint baseBgPaint = new android.graphics.Paint();
         baseBgPaint.setStyle(android.graphics.Paint.Style.FILL);
-        baseBgPaint.setColor(android.graphics.Color.parseColor("#0D1117")); // Match chart background
+        baseBgPaint.setColor(android.graphics.Color.parseColor("#11141E")); // Dark charcoal background
         baseBgPaint.setAntiAlias(true);
-        canvas.drawRoundRect(x, y, x + w, y + h, 14f, 14f, baseBgPaint);
+        canvas.drawRoundRect(x, y, x + w, y + h, radius, radius, baseBgPaint);
 
         android.graphics.Paint tintBgPaint = new android.graphics.Paint();
         tintBgPaint.setStyle(android.graphics.Paint.Style.FILL);
-        int tintColor = android.graphics.Color.argb(38, 
+        int tintColor = android.graphics.Color.argb(30, 
                 android.graphics.Color.red(color), 
                 android.graphics.Color.green(color), 
-                android.graphics.Color.blue(color)); // 15% opacity tint overlay
+                android.graphics.Color.blue(color)); // 12% opacity tint
         tintBgPaint.setColor(tintColor);
         tintBgPaint.setAntiAlias(true);
-        canvas.drawRoundRect(x, y, x + w, y + h, 14f, 14f, tintBgPaint);
+        canvas.drawRoundRect(x, y, x + w, y + h, radius, radius, tintBgPaint);
         
         android.graphics.Paint strokePaint = new android.graphics.Paint();
         strokePaint.setStyle(android.graphics.Paint.Style.STROKE);
-        strokePaint.setStrokeWidth(4f);
+        strokePaint.setStrokeWidth(strokeW);
         strokePaint.setColor(color);
         strokePaint.setAntiAlias(true);
-        canvas.drawRoundRect(x, y, x + w, y + h, 14f, 14f, strokePaint);
+        canvas.drawRoundRect(x, y, x + w, y + h, radius, radius, strokePaint);
         
+        float textSize = Math.min(16f, h * 0.26f);
         android.graphics.Paint textPaint = new android.graphics.Paint();
         textPaint.setAntiAlias(true);
-        textPaint.setTextSize(28f);
+        textPaint.setTextSize(textSize);
         textPaint.setColor(android.graphics.Color.parseColor("#E1E4EA"));
-        textPaint.setTypeface(android.graphics.Typeface.DEFAULT);
+        textPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         float nameWidth = textPaint.measureText(name);
-        canvas.drawText(name, x + (w - nameWidth) / 2f, y + 42f, textPaint);
+
+        boolean recentlyDetected = false;
+        String motionTimeStr = "";
+        
+        if (motionTime > 0) {
+            long diff = System.currentTimeMillis() - motionTime;
+            if (diff >= 0 && diff <= 3600_000L) {
+                recentlyDetected = true;
+                motionTimeStr = new java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(new java.util.Date(motionTime));
+            }
+        }
+
+        canvas.drawText(name, x + (w - nameWidth) / 2f, y + h * 0.36f, textPaint);
         
         android.graphics.Paint tempPaint = new android.graphics.Paint();
         tempPaint.setAntiAlias(true);
-        tempPaint.setTextSize(36f);
+        tempPaint.setTextSize(textSize * 1.15f);
         tempPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         tempPaint.setColor(color);
         String tempStr = String.format(Locale.getDefault(), "%.1f°", temp);
         float tempWidth = tempPaint.measureText(tempStr);
-        canvas.drawText(tempStr, x + (w - tempWidth) / 2f, y + 85f, tempPaint);
+        canvas.drawText(tempStr, x + (w - tempWidth) / 2f, y + h * 0.83f, tempPaint);
+
+        if (recentlyDetected) {
+            float S = w / 164f; // Local scale factor for card
+            android.graphics.Paint motionPaint = new android.graphics.Paint();
+            motionPaint.setAntiAlias(true);
+            motionPaint.setTextSize(textSize);
+            motionPaint.setColor(android.graphics.Color.parseColor("#8E9AA8"));
+            motionPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            
+            // Draw on vertical layout (på høykant) along the right edge
+            canvas.save();
+            float cx = x + w - Math.max(10f, 12f * S);
+            float cy = y + h / 2f;
+            canvas.translate(cx, cy);
+            canvas.rotate(-90f);
+            float txtW = motionPaint.measureText(motionTimeStr);
+            canvas.drawText(motionTimeStr, -txtW / 2f, motionPaint.getTextSize() * 0.36f, motionPaint);
+            canvas.restore();
+        }
     }
 
     private void drawWidgetCard(android.graphics.Canvas canvas, float left, float top, float right, float bottom) {
@@ -1367,6 +1367,44 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.drawRoundRect(left, top, right, bottom, 18f, 18f, stroke);
     }
 
+    private void drawThermometerIcon(android.graphics.Canvas canvas, float x, float y, float size, float S, android.graphics.Paint paint) {
+        android.graphics.Paint p = new android.graphics.Paint(paint);
+        p.setStyle(android.graphics.Paint.Style.FILL);
+        
+        float cx = x + size * 0.5f;
+        float cy = y + size * 0.70f;
+        float rBulb = size * 0.20f;
+        float wStem = size * 0.08f;
+        float topStem = y + size * 0.10f;
+        float botStem = cy - rBulb * 0.5f;
+        
+        android.graphics.Path path = new android.graphics.Path();
+        path.arcTo(new android.graphics.RectF(cx - wStem, topStem, cx + wStem, topStem + wStem * 2f), 180, 180, false);
+        path.lineTo(cx + wStem, botStem);
+        path.arcTo(new android.graphics.RectF(cx - rBulb, cy - rBulb, cx + rBulb, cy + rBulb), -120, 300, false);
+        path.close();
+        
+        canvas.drawPath(path, p);
+    }
+
+    private void drawDropletIcon(android.graphics.Canvas canvas, float x, float y, float size, float S, android.graphics.Paint paint) {
+        android.graphics.Paint p = new android.graphics.Paint(paint);
+        p.setStyle(android.graphics.Paint.Style.FILL);
+        
+        float cx = x + size * 0.5f;
+        float cy = y + size * 0.65f;
+        float r = size * 0.24f;
+        
+        android.graphics.Path path = new android.graphics.Path();
+        path.moveTo(cx, y + size * 0.15f);
+        path.cubicTo(cx + r * 0.8f, cy - r * 0.5f, cx + r, cy - r * 0.2f, cx + r, cy);
+        path.arcTo(new android.graphics.RectF(cx - r, cy - r, cx + r, cy + r), 0, 180, false);
+        path.cubicTo(cx - r, cy - r * 0.2f, cx - r * 0.8f, cy - r * 0.5f, cx, y + size * 0.15f);
+        path.close();
+        
+        canvas.drawPath(path, p);
+    }
+
     private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr, float left, float top, float right, float bottom) {
         drawWidgetCard(canvas, left, top, right, bottom);
         if (bmp != null) {
@@ -1380,40 +1418,43 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             float bmpW = bmp.getWidth();
             float bmpH = bmp.getHeight();
             float scale = Math.max(cardW / bmpW, cardH / bmpH);
+            if (title != null && (title.equals("G\u00c5RDSPLASSEN") || title.equals("GÅRDSPLASSEN"))) {
+                scale *= 1.10f;
+            }
             float drawW = bmpW * scale;
             float drawH = bmpH * scale;
             float dx = left + (cardW - drawW) / 2f;
             float dy;
             if (title != null && title.equals("GÅRDSPLASSEN")) {
-                // Center viewport at 10% above the middle of the image (0.40 of drawH)
                 dy = top + cardH / 2f - 0.40f * drawH;
-                // Clamp dy to prevent drawing outside card boundaries
                 dy = Math.max(top + cardH - drawH, Math.min(top, dy));
             } else {
-                dy = top + (cardH - drawH) / 2f; // Symmetrical center crop
+                dy = top + (cardH - drawH) / 2f;
             }
             Rect src = new Rect(0, 0, (int)bmpW, (int)bmpH);
             android.graphics.RectF dst = new android.graphics.RectF(dx, dy, dx + drawW, dy + drawH);
             canvas.drawBitmap(bmp, src, dst, new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG));
             
-            // Overlay banner
+            // Scaled banner and overlays
+            float S = cardW / 712f;
+            float bannerH = Math.max(30f, 40f * S);
             Paint bannerP = new Paint();
             bannerP.setColor(android.graphics.Color.argb(160, 0, 0, 0));
-            canvas.drawRect(left, top, right, top + 55f, bannerP);
+            canvas.drawRect(left, top, right, top + bannerH, bannerP);
             
             Paint bannerText = new Paint();
             bannerText.setAntiAlias(true);
             bannerText.setColor(android.graphics.Color.WHITE);
-            bannerText.setTextSize(24f);
+            bannerText.setTextSize(Math.max(17f, 23f * S));
             bannerText.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-            canvas.drawText(title, left + 20f, top + 36f, bannerText);
+            canvas.drawText(title, left + 22f * S, top + bannerH * 0.65f, bannerText);
             
             Paint tsText = new Paint();
             tsText.setAntiAlias(true);
             tsText.setColor(android.graphics.Color.parseColor("#CCCCCC"));
-            tsText.setTextSize(22f);
+            tsText.setTextSize(Math.max(17f, 23f * S));
             String displayTs = (tsStr != null && !tsStr.isEmpty()) ? tsStr : "Live";
-            canvas.drawText(displayTs, right - 20f - tsText.measureText(displayTs), top + 35f, tsText);
+            canvas.drawText(displayTs, right - 22f * S - tsText.measureText(displayTs), top + bannerH * 0.65f, tsText);
             
             canvas.restore();
             
