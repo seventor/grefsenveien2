@@ -36,8 +36,10 @@ The application fetches a live-updated security camera image from an Amazon S3 b
 1. Clone the project and open it in **Android Studio**.
 2. Create `local.properties` with `sdk.dir` and your secret URLs (see [Configuration & Secrets](#configuration--secrets-local-setup) below).
 3. Sync Gradle (**File → Sync Project with Gradle Files**).
-4. Connect a physical Android phone with USB debugging enabled.
-5. Install and run the **`app`** module on the phone, or use the **Desktop Head Unit (DHU)** emulator for the full Android Auto UI.
+4. Connect a physical Android phone.
+5. Accept debugging on the phone.
+6. Install and run the **`app`** module on the phone, or use the **Desktop Head Unit (DHU)** emulator for the full Android Auto UI.
+7. Open Setti ngs on Android device, goto Apps. Find Android Auto, click "More settings in app", the the three dost on top right, then Turn on Server for main unit.
 
 **Detailed testing guide (phone, DHU, car, Wear OS, troubleshooting):** [TESTING.md](TESTING.md)
 

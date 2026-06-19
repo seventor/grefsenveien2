@@ -507,7 +507,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         SharedPreferences prefs = getCarContext().getSharedPreferences("GrefsenveienPrefs", Context.MODE_PRIVATE);
         String savedEmail = prefs.getString("user_email", null);
         
-        if (targetName.equals("garasjen") && (savedEmail == null || savedEmail.isEmpty())) {
+        if ((savedEmail == null || savedEmail.isEmpty())) {
             CarToast.makeText(getCarContext(), "Du må logge inn i appen på telefonen", CarToast.LENGTH_LONG).show();
             return;
         }
@@ -529,21 +529,15 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(5000);
-                
-                if (targetName.equals("garasjen")) {
-                    connection.setRequestMethod("POST");
-                    connection.setRequestProperty("Content-Type", "application/json");
-                    connection.setDoOutput(true);
-                    
-                    String payload = "{\"token\":\"Xi3gQF4GTFR7aENMkMjftt4P\",\"user\":\"" + savedEmail + "\"}";
-                    
-                    try (java.io.OutputStream os = connection.getOutputStream()) {
-                        byte[] input = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                        os.write(input, 0, input.length);
-                    }
-                } else {
-                    connection.setRequestMethod("GET");
-                    connection.connect();
+                connection.setRequestMethod("POST");
+                connection.setRequestProperty("Content-Type", "application/json");
+                connection.setDoOutput(true);
+
+                String payload = "{\"token\":\"Xi3gQF4GTFR7aENMkMjftt4P\",\"user\":\"" + savedEmail + "\"}";
+
+                try (java.io.OutputStream os = connection.getOutputStream()) {
+                    byte[] input = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    os.write(input, 0, input.length);
                 }
 
                 // Get response code 
