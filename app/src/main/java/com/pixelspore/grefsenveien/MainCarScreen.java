@@ -45,6 +45,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private static final String MAILBOX_IMAGE_URL = BuildConfig.S3_MAILBOX_IMAGE_URL;
 
     private enum ViewMode { YARD, MAILBOX, HOME, INFO }
+    private enum ImageTarget { YARD, MAILBOX, WEATHER }
     private ViewMode currentMode = ViewMode.YARD;
 
     private String garageStatus = "";
@@ -53,6 +54,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private String imageTimestamp = "";
     private Bitmap mailboxBitmap = null;
     private String mailboxTimestamp = "";
+    private Bitmap weatherBitmap = null;
+    private String weatherTimestamp = "";
     private Bitmap homeBitmap = null;
     private String homeTimestamp = "";
     private SurfaceContainer mSurfaceContainer;
@@ -86,8 +89,16 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private final Runnable mImageUpdater = new Runnable() {
         @Override
         public void run() {
-            fetchImageFromUrl(BuildConfig.S3_IMAGE_URL, false);
+            fetchImageFromUrl(BuildConfig.S3_IMAGE_URL, ImageTarget.YARD);
             mUpdateHandler.postDelayed(this, 60000); // 60 sekunder
+        }
+    };
+
+    private final Runnable mWeatherUpdater = new Runnable() {
+        @Override
+        public void run() {
+            fetchImageFromUrl(BuildConfig.WEATHER_CAMERA_URL, ImageTarget.WEATHER);
+            mUpdateHandler.postDelayed(this, 60000);
         }
     };
 
@@ -102,7 +113,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private final Runnable mMailboxUpdater = new Runnable() {
         @Override
         public void run() {
-            fetchImageFromUrl(MAILBOX_IMAGE_URL, true);
+            fetchImageFromUrl(MAILBOX_IMAGE_URL, ImageTarget.MAILBOX);
             mUpdateHandler.postDelayed(this, 120000);
         }
     };
@@ -148,6 +159,9 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         mUpdateHandler.removeCallbacks(mMailboxUpdater);
         mUpdateHandler.post(mMailboxUpdater);
 
+        mUpdateHandler.removeCallbacks(mWeatherUpdater);
+        mUpdateHandler.post(mWeatherUpdater);
+
         mUpdateHandler.removeCallbacks(mHomeUpdater);
         mUpdateHandler.post(mHomeUpdater);
     }
@@ -166,6 +180,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         mUpdateHandler.removeCallbacks(mImageUpdater);
         mUpdateHandler.removeCallbacks(mDoorbellUpdater);
         mUpdateHandler.removeCallbacks(mMailboxUpdater);
+        mUpdateHandler.removeCallbacks(mWeatherUpdater);
         mUpdateHandler.removeCallbacks(mHomeUpdater);
     }
 
@@ -203,12 +218,22 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             return;
         }
 
-        Bitmap displayBitmap = currentMode == ViewMode.MAILBOX ? mailboxBitmap
-                             : currentMode == ViewMode.HOME    ? homeBitmap
-                             : cameraBitmap;
-        String displayTimestamp = currentMode == ViewMode.MAILBOX ? mailboxTimestamp
-                                : currentMode == ViewMode.HOME    ? homeTimestamp
-                                : imageTimestamp;
+        if (currentMode == ViewMode.MAILBOX) {
+            try {
+                Canvas canvas = mSurfaceContainer.getSurface().lockCanvas(null);
+                if (canvas != null) {
+                    canvas.drawColor(android.graphics.Color.BLACK);
+                    drawMailboxComposite(canvas);
+                    mSurfaceContainer.getSurface().unlockCanvasAndPost(canvas);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            return;
+        }
+
+        Bitmap displayBitmap = currentMode == ViewMode.HOME ? homeBitmap : cameraBitmap;
+        String displayTimestamp = currentMode == ViewMode.HOME ? homeTimestamp : imageTimestamp;
         if (displayBitmap == null) return;
 
         try {
@@ -325,7 +350,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         CarToast.makeText(getCarContext(), "Henter nytt bilde...", CarToast.LENGTH_SHORT).show();
                         if (currentMode == ViewMode.MAILBOX) {
                             mUpdateHandler.removeCallbacks(mMailboxUpdater);
+                            mUpdateHandler.removeCallbacks(mWeatherUpdater);
                             mUpdateHandler.post(mMailboxUpdater);
+                            mUpdateHandler.post(mWeatherUpdater);
+                            fetchImageFromUrl(BuildConfig.S3_IMAGE_URL, ImageTarget.YARD);
                         } else if (currentMode == ViewMode.HOME) {
                             mUpdateHandler.removeCallbacks(mHomeUpdater);
                             mUpdateHandler.post(mHomeUpdater);
@@ -400,7 +428,138 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     }
 
-    private void fetchImageFromUrl(String imageUrl, boolean isMailbox) {
+    private void drawMailboxComposite(Canvas canvas) {
+        float w = canvas.getWidth();
+        float h = canvas.getHeight();
+        float topPad = h * 0.105f;
+        float gap = 6f;
+        float halfW = (w - gap) / 2f;
+        float tsTextSize = Math.max(17f, 23f * (halfW / 712f));
+
+        float weatherTop = topPad;
+        float weatherH = (h - topPad) * 0.2f;
+        if (weatherBitmap != null && weatherBitmap.getWidth() > 0) {
+            weatherH = w * ((float) weatherBitmap.getHeight() / weatherBitmap.getWidth());
+        }
+        float weatherBottom = weatherTop + weatherH;
+
+        float bottomTop = weatherBottom + gap;
+        float bottomBottom = h;
+        float cornerRadius = Math.max(18f, w * 0.022f);
+
+        drawMailboxImagePanel(canvas, weatherBitmap, weatherTimestamp, 0f, weatherTop, w, weatherBottom,
+                true, tsTextSize, false, cornerRadius, true, true, false, false);
+        drawMailboxImagePanel(canvas, cameraBitmap, imageTimestamp, 0f, bottomTop, halfW, bottomBottom,
+                false, tsTextSize, true, cornerRadius, false, false, false, true);
+        drawMailboxImagePanel(canvas, mailboxBitmap, mailboxTimestamp, halfW + gap, bottomTop, w, bottomBottom,
+                false, tsTextSize, false, cornerRadius, false, false, true, false);
+    }
+
+    private void clipPanelWithCorners(Canvas canvas, float left, float top, float right, float bottom,
+            float radius, boolean roundTopLeft, boolean roundTopRight,
+            boolean roundBottomRight, boolean roundBottomLeft) {
+        if (!roundTopLeft && !roundTopRight && !roundBottomRight && !roundBottomLeft) {
+            canvas.clipRect(left, top, right, bottom);
+            return;
+        }
+        float[] radii = new float[8];
+        if (roundTopLeft) {
+            radii[0] = radius;
+            radii[1] = radius;
+        }
+        if (roundTopRight) {
+            radii[2] = radius;
+            radii[3] = radius;
+        }
+        if (roundBottomRight) {
+            radii[4] = radius;
+            radii[5] = radius;
+        }
+        if (roundBottomLeft) {
+            radii[6] = radius;
+            radii[7] = radius;
+        }
+        Path clipPath = new Path();
+        clipPath.addRoundRect(new android.graphics.RectF(left, top, right, bottom), radii, Path.Direction.CW);
+        canvas.clipPath(clipPath);
+    }
+
+    private void drawMailboxImagePanel(Canvas canvas, Bitmap bmp, String tsStr,
+            float left, float top, float right, float bottom,
+            boolean fitWidth, float tsTextSize, boolean yardCropOffset, float cornerRadius,
+            boolean roundTopLeft, boolean roundTopRight, boolean roundBottomRight, boolean roundBottomLeft) {
+        if (bmp == null) {
+            Paint textPaint = new Paint();
+            textPaint.setAntiAlias(true);
+            textPaint.setColor(android.graphics.Color.GRAY);
+            textPaint.setTextSize(28f);
+            String placeholder = "Laster...";
+            canvas.drawText(placeholder, left + ((right - left) - textPaint.measureText(placeholder)) / 2f,
+                    top + (bottom - top) / 2f, textPaint);
+            return;
+        }
+
+        canvas.save();
+        clipPanelWithCorners(canvas, left, top, right, bottom, cornerRadius,
+                roundTopLeft, roundTopRight, roundBottomRight, roundBottomLeft);
+
+        float cardW = right - left;
+        float cardH = bottom - top;
+        float bmpW = bmp.getWidth();
+        float bmpH = bmp.getHeight();
+        float scale;
+        if (fitWidth) {
+            scale = cardW / bmpW;
+        } else {
+            scale = Math.max(cardW / bmpW, cardH / bmpH);
+            if (yardCropOffset) {
+                scale *= 1.10f;
+            }
+        }
+        float drawW = bmpW * scale;
+        float drawH = bmpH * scale;
+        float dx = left + (cardW - drawW) / 2f;
+        float dy;
+        if (yardCropOffset) {
+            dy = top + cardH / 2f - 0.40f * drawH;
+            dy = Math.max(top + cardH - drawH, Math.min(top, dy));
+        } else {
+            dy = top + (cardH - drawH) / 2f;
+        }
+
+        Rect src = new Rect(0, 0, (int) bmpW, (int) bmpH);
+        android.graphics.RectF dst = new android.graphics.RectF(dx, dy, dx + drawW, dy + drawH);
+        canvas.drawBitmap(bmp, src, dst, new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG));
+        canvas.restore();
+
+        drawTimestampBadge(canvas, tsStr, left, top, right, bottom, tsTextSize);
+    }
+
+    private void drawTimestampBadge(Canvas canvas, String tsStr, float left, float top, float right, float bottom, float textSize) {
+        String displayTs = (tsStr != null && !tsStr.isEmpty()) ? tsStr : "Live";
+        Paint tsText = new Paint();
+        tsText.setAntiAlias(true);
+        tsText.setColor(android.graphics.Color.parseColor("#CCCCCC"));
+        tsText.setTextSize(textSize);
+
+        int textPadding = 12;
+        int edgeMargin = 10;
+        Rect textBounds = new Rect();
+        tsText.getTextBounds(displayTs, 0, displayTs.length(), textBounds);
+
+        float rectLeft = left + edgeMargin;
+        float rectTop = top + edgeMargin;
+        float rectRight = rectLeft + textBounds.width() + textPadding * 2f;
+        float rectBottom = rectTop + textBounds.height() + textPadding * 2f;
+
+        Paint bgPaint = new Paint();
+        bgPaint.setColor(android.graphics.Color.BLACK);
+        bgPaint.setAlpha(200);
+        canvas.drawRect(rectLeft, rectTop, rectRight, rectBottom, bgPaint);
+        canvas.drawText(displayTs, rectLeft + textPadding, rectBottom - textPadding, tsText);
+    }
+
+    private void fetchImageFromUrl(String imageUrl, ImageTarget target) {
         new Thread(() -> {
             try {
                 // Legg på et unikt tidsstempel for å tvinge Nabu Casa / proxyer til å gi oss et ferskt bilde (cache-busting)
@@ -459,12 +618,19 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         final String newTimestamp = finalTimestampStr;
 
                         getCarContext().getMainExecutor().execute(() -> {
-                            if (isMailbox) {
-                                mailboxBitmap = bitmap;
-                                mailboxTimestamp = newTimestamp;
-                            } else {
-                                cameraBitmap = bitmap;
-                                imageTimestamp = newTimestamp;
+                            switch (target) {
+                                case MAILBOX:
+                                    mailboxBitmap = bitmap;
+                                    mailboxTimestamp = newTimestamp;
+                                    break;
+                                case WEATHER:
+                                    weatherBitmap = bitmap;
+                                    weatherTimestamp = newTimestamp;
+                                    break;
+                                default:
+                                    cameraBitmap = bitmap;
+                                    imageTimestamp = newTimestamp;
+                                    break;
                             }
                             drawCameraImage();
                             invalidate();

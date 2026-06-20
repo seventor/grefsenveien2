@@ -18,6 +18,7 @@ jobs:
       GATE_WEBHOOK_URL: ${{ secrets.GATE_WEBHOOK_URL }}
       S3_IMAGE_URL: ${{ secrets.S3_IMAGE_URL }}
       S3_MAILBOX_IMAGE_URL: ${{ secrets.S3_MAILBOX_IMAGE_URL }}
+      WEATHER_CAMERA_URL: ${{ secrets.WEATHER_CAMERA_URL }}
       DOORBELL_TAKE_IMAGE_URL: ${{ secrets.DOORBELL_TAKE_IMAGE_URL }}
       HA_BASE_URL: ${{ secrets.HA_BASE_URL }}
       HA_TOKEN: ${{ secrets.HA_TOKEN }}

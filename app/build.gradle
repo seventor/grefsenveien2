@@ -23,6 +23,7 @@ android {
         buildConfigField "String", "GATE_WEBHOOK_URL", "\"${getBuildProperty('GATE_WEBHOOK_URL')}\""
         buildConfigField "String", "S3_IMAGE_URL", "\"${getBuildProperty('S3_IMAGE_URL')}\""
         buildConfigField "String", "S3_MAILBOX_IMAGE_URL", "\"${getBuildProperty('S3_MAILBOX_IMAGE_URL')}\""
+        buildConfigField "String", "WEATHER_CAMERA_URL", "\"${getBuildProperty('WEATHER_CAMERA_URL')}\""
         buildConfigField "String", "DOORBELL_TAKE_IMAGE_URL", "\"${getBuildProperty('DOORBELL_TAKE_IMAGE_URL')}\""
         buildConfigField "String", "HA_BASE_URL", "\"${getBuildProperty('HA_BASE_URL')}\""
         buildConfigField "String", "HA_TOKEN", "\"${getBuildProperty('HA_TOKEN')}\""

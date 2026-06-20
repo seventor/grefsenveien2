@@ -68,6 +68,8 @@ Create or open the `local.properties` file in the root directory (where `sdk.dir
 GARAGE_WEBHOOK_URL=https://your-home-assistant.url/api/webhook/secret_code_garage
 GATE_WEBHOOK_URL=https://your-home-assistant.url/api/webhook/secret_code_gate
 S3_IMAGE_URL=https://your-s3-bucket-url.com/latest.jpg
+S3_MAILBOX_IMAGE_URL=https://your-mailbox-image-url.com/latest.jpg
+WEATHER_CAMERA_URL=https://weathercamera.s3.us-east-1.amazonaws.com/latest.jpg
 ```
 *Gradle will read these during compilation and automatically inject them into both the Mobile App and the Wear OS Tile via `BuildConfig`.*
 

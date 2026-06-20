@@ -71,6 +71,7 @@ Gå til GitHub-repoet → **Settings** → **Secrets and variables** → **Actio
 | `GATE_WEBHOOK_URL` | Samme som i `local.properties` |
 | `S3_IMAGE_URL` | Samme som i `local.properties` |
 | `S3_MAILBOX_IMAGE_URL` | Samme som i `local.properties` |
+| `WEATHER_CAMERA_URL` | Samme som i `local.properties` |
 | `DOORBELL_TAKE_IMAGE_URL` | Samme som i `local.properties` |
 | `HA_BASE_URL` | Samme som i `local.properties` |
 | `HA_TOKEN` | Samme som i `local.properties` |
