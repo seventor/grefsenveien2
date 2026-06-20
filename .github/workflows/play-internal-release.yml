@@ -1,0 +1,76 @@
+name: Release to Play Internal Testing
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: play-internal-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      GARAGE_WEBHOOK_URL: ${{ secrets.GARAGE_WEBHOOK_URL }}
+      GATE_WEBHOOK_URL: ${{ secrets.GATE_WEBHOOK_URL }}
+      S3_IMAGE_URL: ${{ secrets.S3_IMAGE_URL }}
+      S3_MAILBOX_IMAGE_URL: ${{ secrets.S3_MAILBOX_IMAGE_URL }}
+      DOORBELL_TAKE_IMAGE_URL: ${{ secrets.DOORBELL_TAKE_IMAGE_URL }}
+      HA_BASE_URL: ${{ secrets.HA_BASE_URL }}
+      HA_TOKEN: ${{ secrets.HA_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create local.properties
+        run: echo "sdk.dir=${ANDROID_SDK_ROOT}" > local.properties
+
+      - name: Decode signing keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/pixelspore.keystore
+
+      - name: Create keystore.properties
+        run: |
+          cat > keystore.properties <<EOF
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
+      - name: Create release notes
+        run: |
+          mkdir -p whatsnew/en-US
+          {
+            echo "Automated internal test build."
+            echo "Run: ${{ github.run_number }}"
+            echo "Commit: ${GITHUB_SHA::7}"
+          } > whatsnew/en-US/default.txt
+
+      - name: Build release AAB
+        run: |
+          ./gradlew :app:bundleRelease \
+            -PversionCodeOverride=$((GITHUB_RUN_NUMBER + 16)) \
+            -PversionNameOverride=2.13.${GITHUB_RUN_NUMBER}
+
+      - name: Upload to Google Play Internal Testing
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.pixelspore.grefsenveien
+          releaseFiles: app/build/outputs/bundle/release/app-release.aab
+          tracks: internal
+          status: completed
+          whatsNewDirectory: whatsnew

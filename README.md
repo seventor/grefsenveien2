@@ -43,6 +43,8 @@ The application fetches a live-updated security camera image from an Amazon S3 b
 
 **Detailed testing guide (phone, DHU, car, Wear OS, troubleshooting):** [TESTING.md](TESTING.md)
 
+**Automatic deploy to Google Play Internal Testing on push to `master`:** [DEPLOY.md](DEPLOY.md)
+
 Quick start for Android Auto on DHU:
 
 ```bash

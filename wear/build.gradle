@@ -2,6 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
+apply from: rootProject.file('gradle/build-config.gradle')
+
 android {
     namespace 'com.pixelspore.grefsenveien.wear'
     compileSdk 35
@@ -10,18 +12,15 @@ android {
         applicationId "com.pixelspore.grefsenveien"
         minSdk 30
         targetSdk 35
-        versionCode 11
-        versionName "2.8"
 
-        // Load URLs from local.properties
-        def localProperties = new Properties()
-        def localPropertiesFile = rootProject.file('local.properties')
-        if (localPropertiesFile.exists()) {
-            localProperties.load(new FileInputStream(localPropertiesFile))
-        }
-        
-        buildConfigField "String", "GARAGE_WEBHOOK_URL", "\"${localProperties.getProperty('GARAGE_WEBHOOK_URL', '')}\""
-        buildConfigField "String", "GATE_WEBHOOK_URL", "\"${localProperties.getProperty('GATE_WEBHOOK_URL', '')}\""
+        def versionCodeOverride = project.findProperty('versionCodeOverride')
+        versionCode versionCodeOverride != null ? versionCodeOverride.toInteger() : 11
+
+        def versionNameOverride = project.findProperty('versionNameOverride')
+        versionName versionNameOverride != null ? versionNameOverride.toString() : "2.8"
+
+        buildConfigField "String", "GARAGE_WEBHOOK_URL", "\"${getBuildProperty('GARAGE_WEBHOOK_URL')}\""
+        buildConfigField "String", "GATE_WEBHOOK_URL", "\"${getBuildProperty('GATE_WEBHOOK_URL')}\""
     }
 
     buildFeatures {

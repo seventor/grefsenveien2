@@ -2,6 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
+apply from: rootProject.file('gradle/build-config.gradle')
+
 android {
     namespace 'com.pixelspore.grefsenveien'
     compileSdk 35
@@ -10,23 +12,20 @@ android {
         applicationId "com.pixelspore.grefsenveien"
         minSdk 23
         targetSdk 35
-        versionCode 16
-        versionName "2.13"
 
-        // Load URLs from local.properties
-        def localProperties = new Properties()
-        def localPropertiesFile = rootProject.file('local.properties')
-        if (localPropertiesFile.exists()) {
-            localProperties.load(new FileInputStream(localPropertiesFile))
-        }
-        
-        buildConfigField "String", "GARAGE_WEBHOOK_URL", "\"${localProperties.getProperty('GARAGE_WEBHOOK_URL', '')}\""
-        buildConfigField "String", "GATE_WEBHOOK_URL", "\"${localProperties.getProperty('GATE_WEBHOOK_URL', '')}\""
-        buildConfigField "String", "S3_IMAGE_URL", "\"${localProperties.getProperty('S3_IMAGE_URL', '')}\""
-        buildConfigField "String", "S3_MAILBOX_IMAGE_URL", "\"${localProperties.getProperty('S3_MAILBOX_IMAGE_URL', '')}\""
-        buildConfigField "String", "DOORBELL_TAKE_IMAGE_URL", "\"${localProperties.getProperty('DOORBELL_TAKE_IMAGE_URL', '')}\""
-        buildConfigField "String", "HA_BASE_URL", "\"${localProperties.getProperty('HA_BASE_URL', '')}\""
-        buildConfigField "String", "HA_TOKEN", "\"${localProperties.getProperty('HA_TOKEN', '')}\""
+        def versionCodeOverride = project.findProperty('versionCodeOverride')
+        versionCode versionCodeOverride != null ? versionCodeOverride.toInteger() : 16
+
+        def versionNameOverride = project.findProperty('versionNameOverride')
+        versionName versionNameOverride != null ? versionNameOverride.toString() : "2.13"
+
+        buildConfigField "String", "GARAGE_WEBHOOK_URL", "\"${getBuildProperty('GARAGE_WEBHOOK_URL')}\""
+        buildConfigField "String", "GATE_WEBHOOK_URL", "\"${getBuildProperty('GATE_WEBHOOK_URL')}\""
+        buildConfigField "String", "S3_IMAGE_URL", "\"${getBuildProperty('S3_IMAGE_URL')}\""
+        buildConfigField "String", "S3_MAILBOX_IMAGE_URL", "\"${getBuildProperty('S3_MAILBOX_IMAGE_URL')}\""
+        buildConfigField "String", "DOORBELL_TAKE_IMAGE_URL", "\"${getBuildProperty('DOORBELL_TAKE_IMAGE_URL')}\""
+        buildConfigField "String", "HA_BASE_URL", "\"${getBuildProperty('HA_BASE_URL')}\""
+        buildConfigField "String", "HA_TOKEN", "\"${getBuildProperty('HA_TOKEN')}\""
     }
 
     buildFeatures {
