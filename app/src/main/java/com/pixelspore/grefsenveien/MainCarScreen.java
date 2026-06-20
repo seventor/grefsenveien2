@@ -44,7 +44,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
     private static final String MAILBOX_IMAGE_URL = BuildConfig.S3_MAILBOX_IMAGE_URL;
 
-    private enum ViewMode { YARD, MAILBOX, HOME, INFO }
+    private enum ViewMode { YARD, MAILBOX, HOME, SETTINGS }
     private enum ImageTarget { YARD, MAILBOX, WEATHER }
     private ViewMode currentMode = ViewMode.YARD;
 
@@ -60,6 +60,15 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private String homeTimestamp = "";
     private SurfaceContainer mSurfaceContainer;
     private Rect mVisibleArea;
+    private int lastCanvasWidth;
+    private int lastCanvasHeight;
+    private int lastVisibleWidth;
+    private int lastVisibleHeight;
+    private int lastVisibleLeft;
+    private int lastVisibleTop;
+    private int detailPageVersion = 1;
+    private android.graphics.RectF settingsVersion1Bounds = new android.graphics.RectF();
+    private android.graphics.RectF settingsVersion2Bounds = new android.graphics.RectF();
 
     private float valJonatan = 23.3f;
     private float valLoftsgang = 25.5f;
@@ -136,8 +145,15 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         try {
             android.content.SharedPreferences prefs = carContext.getSharedPreferences("GrefsenveienPrefs", android.content.Context.MODE_PRIVATE);
             String savedMode = prefs.getString("lastViewMode", null);
+            if ("INFO".equals(savedMode)) {
+                savedMode = "SETTINGS";
+            }
             if (savedMode != null) {
                 currentMode = ViewMode.valueOf(savedMode);
+            }
+            detailPageVersion = prefs.getInt("detailPageVersion", 1);
+            if (detailPageVersion != 1 && detailPageVersion != 2) {
+                detailPageVersion = 1;
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -147,6 +163,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     @Override
     public void onSurfaceAvailable(@NonNull SurfaceContainer surfaceContainer) {
         mSurfaceContainer = surfaceContainer;
+        updateScreenInfoCache();
         drawCameraImage();
         
         // Start automatisk oppdatering hvert minutt
@@ -169,6 +186,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     @Override
     public void onVisibleAreaChanged(@NonNull Rect visibleArea) {
         mVisibleArea = visibleArea;
+        updateScreenInfoCache();
         drawCameraImage();
     }
 
@@ -187,34 +205,16 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private void drawCameraImage() {
         if (mSurfaceContainer == null || mSurfaceContainer.getSurface() == null) return;
 
-        // --- INFO-modus: tegn direkte på canvas uten bitmap ---
-        if (currentMode == ViewMode.INFO) {
+        if (currentMode == ViewMode.SETTINGS) {
             try {
                 Canvas canvas = mSurfaceContainer.getSurface().lockCanvas(null);
                 if (canvas != null) {
-                    int cW = canvas.getWidth(), cH = canvas.getHeight();
-                    int vW = mVisibleArea != null ? mVisibleArea.width() : cW;
-                    int vH = mVisibleArea != null ? mVisibleArea.height() : cH;
-                    int vL = mVisibleArea != null ? mVisibleArea.left : 0;
-                    int vT = mVisibleArea != null ? mVisibleArea.top : 0;
-
-                    canvas.drawColor(android.graphics.Color.parseColor("#0D1117"));
-                    Paint hP = new Paint(); hP.setAntiAlias(true); hP.setColor(android.graphics.Color.WHITE);
-                    hP.setTextSize(80f); hP.setTypeface(Typeface.DEFAULT_BOLD);
-                    canvas.drawText("Skjerminfo", vL + 60f, vT + 100f, hP);
-
-                    Paint lP = new Paint(); lP.setAntiAlias(true); lP.setColor(android.graphics.Color.parseColor("#CCCCCC")); lP.setTextSize(52f);
-                    String[] lines = {
-                        "Canvas:  " + cW + " × " + cH + " px",
-                        "Synlig:  " + vW + " × " + vH + " px",
-                        "Offset:  " + vL + ", " + vT,
-                    };
-                    for (int i = 0; i < lines.length; i++)
-                        canvas.drawText(lines[i], vL + 60f, vT + 200f + i * 80f, lP);
-
+                    drawSettingsScreen(canvas);
                     mSurfaceContainer.getSurface().unlockCanvasAndPost(canvas);
                 }
-            } catch (Exception e) { e.printStackTrace(); }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
             return;
         }
 
@@ -266,36 +266,17 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 canvas.drawBitmap(displayBitmap, null, destRect, new Paint());
 
                 if (displayTimestamp != null && !displayTimestamp.isEmpty()) {
-                    Paint textPaint = new Paint();
-                    textPaint.setColor(android.graphics.Color.WHITE);
-                    textPaint.setTextSize(24f);
-                    textPaint.setAntiAlias(true);
-                    
-                    int vWidth = mVisibleArea != null ? mVisibleArea.width() : canvas.getWidth();
-                    int vHeight = mVisibleArea != null ? mVisibleArea.height() : canvas.getHeight();
-                    int vLeft = mVisibleArea != null ? mVisibleArea.left : 0;
-                    int vTop = mVisibleArea != null ? mVisibleArea.top : 0;
-
                     if (currentMode == ViewMode.HOME) {
-                        // Place at absolute canvas top, aligned with the Action buttons in the system padding area
+                        Paint textPaint = new Paint();
+                        textPaint.setColor(android.graphics.Color.WHITE);
+                        textPaint.setTextSize(24f);
+                        textPaint.setAntiAlias(true);
                         float textX = 12f;
                         float textY = 56f;
                         canvas.drawText(displayTimestamp, textX, textY, textPaint);
                     } else {
-                        // Bottom-right placement with black background box for camera modes
-                        Paint bgPaint = new Paint();
-                        bgPaint.setColor(android.graphics.Color.BLACK);
-                        bgPaint.setAlpha(200);
-                        Rect textBounds = new Rect();
-                        textPaint.getTextBounds(displayTimestamp, 0, displayTimestamp.length(), textBounds);
-                        int textPadding = 16, edgeMargin = 40;
-                        
-                        int rectLeft   = vLeft + vWidth  - textBounds.width()  - textPadding * 2 - edgeMargin;
-                        int rectTop    = vTop + vHeight - textBounds.height() - textPadding * 2 - edgeMargin;
-                        int rectRight  = vLeft + vWidth  - edgeMargin;
-                        int rectBottom = vTop + vHeight - edgeMargin;
-                        canvas.drawRect(rectLeft, rectTop, rectRight, rectBottom, bgPaint);
-                        canvas.drawText(displayTimestamp, rectLeft + textPadding, rectBottom - textPadding, textPaint);
+                        drawTimestampBadge(canvas, displayTimestamp, 0f, 0f,
+                                drawWidth, drawHeight, getCameraTabTimestampTextSize(drawWidth));
                     }
                 }
 
@@ -306,63 +287,138 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     }
 
+    @Override
+    public void onClick(float x, float y) {
+        if (currentMode != ViewMode.SETTINGS) return;
+        if (settingsVersion1Bounds.contains(x, y)) {
+            selectDetailPageVersion(1);
+        } else if (settingsVersion2Bounds.contains(x, y)) {
+            selectDetailPageVersion(2);
+        }
+    }
+
+    private void selectDetailPageVersion(int version) {
+        if (detailPageVersion == version) return;
+        setDetailPageVersion(version);
+        CarToast.makeText(getCarContext(), "Detaljside: Versjon " + version, CarToast.LENGTH_SHORT).show();
+        mUpdateHandler.removeCallbacks(mHomeUpdater);
+        mUpdateHandler.post(mHomeUpdater);
+        drawCameraImage();
+        invalidate();
+    }
+
+    private void drawSettingsScreen(Canvas canvas) {
+        updateScreenInfoCache();
+        int cW = canvas.getWidth();
+        int cH = canvas.getHeight();
+        int vW = mVisibleArea != null ? mVisibleArea.width() : cW;
+        int vH = mVisibleArea != null ? mVisibleArea.height() : cH;
+        int vL = mVisibleArea != null ? mVisibleArea.left : 0;
+        int vT = mVisibleArea != null ? mVisibleArea.top : 0;
+
+        canvas.drawColor(android.graphics.Color.parseColor("#0D1117"));
+
+        float topPad = cH * 0.105f;
+        float x = vL + 60f;
+        float y = vT + topPad + 40f;
+
+        Paint titlePaint = new Paint();
+        titlePaint.setAntiAlias(true);
+        titlePaint.setColor(android.graphics.Color.WHITE);
+        titlePaint.setTextSize(72f);
+        titlePaint.setTypeface(Typeface.DEFAULT_BOLD);
+        canvas.drawText("Innstillinger", x, y, titlePaint);
+        y += 90f;
+
+        Paint sectionPaint = new Paint();
+        sectionPaint.setAntiAlias(true);
+        sectionPaint.setColor(android.graphics.Color.parseColor("#CCCCCC"));
+        sectionPaint.setTextSize(48f);
+        sectionPaint.setTypeface(Typeface.DEFAULT_BOLD);
+        canvas.drawText("Detaljside", x, y, sectionPaint);
+        y += 70f;
+
+        float optionW = Math.min(420f, (vW - 120f) / 2f);
+        float optionH = 88f;
+        float optionGap = 24f;
+        settingsVersion1Bounds.set(x, y, x + optionW, y + optionH);
+        settingsVersion2Bounds.set(x + optionW + optionGap, y, x + optionW + optionGap + optionW, y + optionH);
+        drawSettingsOption(canvas, settingsVersion1Bounds, "Versjon 1", detailPageVersion == 1);
+        drawSettingsOption(canvas, settingsVersion2Bounds, "Versjon 2", detailPageVersion == 2);
+        y += optionH + 80f;
+
+        canvas.drawText("Skjerminfo", x, y, sectionPaint);
+        y += 70f;
+
+        Paint linePaint = new Paint();
+        linePaint.setAntiAlias(true);
+        linePaint.setColor(android.graphics.Color.parseColor("#CCCCCC"));
+        linePaint.setTextSize(44f);
+        String[] lines = {
+                "Canvas:  " + cW + " \u00d7 " + cH + " px",
+                "Synlig:  " + vW + " \u00d7 " + vH + " px",
+                "Offset:  " + vL + ", " + vT,
+        };
+        for (String line : lines) {
+            canvas.drawText(line, x, y, linePaint);
+            y += 64f;
+        }
+    }
+
+    private void drawSettingsOption(Canvas canvas, android.graphics.RectF bounds, String label, boolean selected) {
+        Paint bg = new Paint();
+        bg.setAntiAlias(true);
+        bg.setColor(selected ? android.graphics.Color.parseColor("#1A3B82F6") : android.graphics.Color.parseColor("#151821"));
+        canvas.drawRoundRect(bounds, 18f, 18f, bg);
+
+        Paint stroke = new Paint();
+        stroke.setAntiAlias(true);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(3f);
+        stroke.setColor(selected ? android.graphics.Color.parseColor("#3B82F6") : android.graphics.Color.parseColor("#222633"));
+        canvas.drawRoundRect(bounds, 18f, 18f, stroke);
+
+        Paint text = new Paint();
+        text.setAntiAlias(true);
+        text.setColor(android.graphics.Color.WHITE);
+        text.setTextSize(40f);
+        text.setTypeface(Typeface.DEFAULT_BOLD);
+        float textY = bounds.top + bounds.height() / 2f + 14f;
+        canvas.drawText(label, bounds.left + 28f, textY, text);
+    }
+
     @NonNull
     @Override
     public Template onGetTemplate() {
+        return buildNavigationTemplate();
+    }
+
+    @NonNull
+    private Template buildNavigationTemplate() {
         ActionStrip.Builder actionStripBuilder = new ActionStrip.Builder();
-        if (currentMode == ViewMode.YARD || currentMode == ViewMode.HOME) {
-            actionStripBuilder.addAction(
-                new Action.Builder()
-                    .setTitle("Garasje")
-                    .setFlags(Action.FLAG_IS_PERSISTENT)
-                    .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(), R.drawable.ic_material_garage_door)).build())
-                    .setBackgroundColor(CarColor.DEFAULT)
-                    .setOnClickListener(() -> makeUrlRequest("garasjen"))
-                    .build());
-            actionStripBuilder.addAction(
-                new Action.Builder()
-                    .setTitle("+1min")
-                    .setFlags(Action.FLAG_IS_PERSISTENT)
-                    .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(), R.drawable.ic_material_garage_door)).build())
-                    .setBackgroundColor(CarColor.DEFAULT)
-                    .setOnClickListener(() -> makeUrlRequest("garasjen", 60))
-                    .build());
-            actionStripBuilder.addAction(
-                new Action.Builder()
-                    .setTitle("Port")
-                    .setFlags(Action.FLAG_IS_PERSISTENT)
-                    .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(), R.drawable.ic_material_outdoor_garden)).build())
-                    .setBackgroundColor(CarColor.DEFAULT)
-                    .setOnClickListener(() -> makeUrlRequest("porten"))
-                    .build());
-        }
         actionStripBuilder.addAction(
             new Action.Builder()
-                .setTitle("Oppdater")
+                .setTitle("Garasje")
                 .setFlags(Action.FLAG_IS_PERSISTENT)
+                .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(), R.drawable.ic_material_garage_door)).build())
                 .setBackgroundColor(CarColor.DEFAULT)
-                .setOnClickListener(() -> {
-                    if (currentMode == ViewMode.INFO) {
-                        CarToast.makeText(getCarContext(), "Oppdaterer info...", CarToast.LENGTH_SHORT).show();
-                        drawCameraImage();
-                        invalidate();
-                    } else {
-                        CarToast.makeText(getCarContext(), "Henter nytt bilde...", CarToast.LENGTH_SHORT).show();
-                        if (currentMode == ViewMode.MAILBOX) {
-                            mUpdateHandler.removeCallbacks(mMailboxUpdater);
-                            mUpdateHandler.removeCallbacks(mWeatherUpdater);
-                            mUpdateHandler.post(mMailboxUpdater);
-                            mUpdateHandler.post(mWeatherUpdater);
-                            fetchImageFromUrl(BuildConfig.S3_IMAGE_URL, ImageTarget.YARD);
-                        } else if (currentMode == ViewMode.HOME) {
-                            mUpdateHandler.removeCallbacks(mHomeUpdater);
-                            mUpdateHandler.post(mHomeUpdater);
-                        } else {
-                            mUpdateHandler.removeCallbacks(mImageUpdater);
-                            mUpdateHandler.post(mImageUpdater);
-                        }
-                    }
-                })
+                .setOnClickListener(() -> makeUrlRequest("garasjen"))
+                .build());
+        actionStripBuilder.addAction(
+            new Action.Builder()
+                .setTitle("+1min")
+                .setFlags(Action.FLAG_IS_PERSISTENT)
+                .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(), R.drawable.ic_material_garage_door)).build())
+                .setBackgroundColor(CarColor.DEFAULT)
+                .setOnClickListener(() -> makeUrlRequest("garasjen", 60))
+                .build());
+        actionStripBuilder.addAction(
+            new Action.Builder()
+                .setTitle("Port")
+                .setFlags(Action.FLAG_IS_PERSISTENT)
+                .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(), R.drawable.ic_material_outdoor_garden)).build())
+                .setBackgroundColor(CarColor.DEFAULT)
+                .setOnClickListener(() -> makeUrlRequest("porten"))
                 .build());
         ActionStrip actionStrip = actionStripBuilder.build();
 
@@ -403,10 +459,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             .addAction(
                 new Action.Builder()
                     .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(),
-                        currentMode == ViewMode.INFO ? R.drawable.ic_tab_info : R.drawable.ic_tab_info_outline)).build())
+                        currentMode == ViewMode.SETTINGS ? R.drawable.ic_tab_settings : R.drawable.ic_tab_settings_outline)).build())
                     .setOnClickListener(() -> {
-                        currentMode = ViewMode.INFO;
-                        saveViewMode(ViewMode.INFO);
+                        currentMode = ViewMode.SETTINGS;
+                        saveViewMode(ViewMode.SETTINGS);
                         drawCameraImage();
                         invalidate();
                     })
@@ -417,6 +473,31 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             .setActionStrip(actionStrip)
             .setMapActionStrip(mapActionStrip)
             .build();
+    }
+
+    private void updateScreenInfoCache() {
+        if (mSurfaceContainer != null) {
+            lastCanvasWidth = mSurfaceContainer.getWidth();
+            lastCanvasHeight = mSurfaceContainer.getHeight();
+        }
+        if (mVisibleArea != null) {
+            lastVisibleLeft = mVisibleArea.left;
+            lastVisibleTop = mVisibleArea.top;
+            lastVisibleWidth = mVisibleArea.width();
+            lastVisibleHeight = mVisibleArea.height();
+        }
+    }
+
+    private void setDetailPageVersion(int version) {
+        detailPageVersion = version;
+        try {
+            getCarContext().getSharedPreferences("GrefsenveienPrefs", Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt("detailPageVersion", version)
+                    .apply();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void saveViewMode(ViewMode mode) {
@@ -434,7 +515,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float topPad = h * 0.105f;
         float gap = 6f;
         float halfW = (w - gap) / 2f;
-        float tsTextSize = Math.max(17f, 23f * (halfW / 712f));
+        float tsTextSize = getCameraTabTimestampTextSize(w);
 
         float weatherTop = topPad;
         float weatherH = (h - topPad) * 0.2f;
@@ -533,6 +614,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.restore();
 
         drawTimestampBadge(canvas, tsStr, left, top, right, bottom, tsTextSize);
+    }
+
+    private float getCameraTabTimestampTextSize(float canvasWidth) {
+        float halfW = (canvasWidth - 6f) / 2f;
+        return Math.max(17f, 23f * (halfW / 712f));
     }
 
     private void drawTimestampBadge(Canvas canvas, String tsStr, float left, float top, float right, float bottom, float textSize) {
@@ -1300,7 +1386,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             Paint noDP = new Paint(); noDP.setColor(android.graphics.Color.GRAY); noDP.setTextSize(baseTxt); noDP.setAntiAlias(true); c.drawText("Ingen data", sGL+sGW*0.2f, sGT+sGH/2f, noDP);
         }
 
-        // === ROW 3: Cameras ===
+        // === ROW 3: Cameras + room cards (Versjon 1 only) ===
+        if (detailPageVersion == 1) {
         float camW = (w - gap) / 2f;
         drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, 0f, r3Top, camW, r3Bot);
         drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, camW+gap, r3Top, (float) w, r3Bot);
@@ -1339,6 +1426,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float rw2 = ((float) w - gapRoom) / 2f;
         drawRoomCard(c, "Gang", valGang4, 0f, gridY, rw2, roomCardH, valGang4MotionTime);
         drawRoomCard(c, "Vaskerom", valVaskerom, rw2+gapRoom, gridY, rw2, roomCardH, valVaskeromMotionTime);
+        }
 
         return bmp;
     }
