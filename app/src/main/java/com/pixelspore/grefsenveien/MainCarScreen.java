@@ -16,6 +16,8 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.util.Log;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.car.app.model.Template;
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -69,6 +71,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private int detailPageVersion = 1;
     private android.graphics.RectF settingsVersion1Bounds = new android.graphics.RectF();
     private android.graphics.RectF settingsVersion2Bounds = new android.graphics.RectF();
+    private Bitmap vgNoBitmap = null;
+    private boolean vgNoCaptureInProgress = false;
 
     private float valJonatan = 23.3f;
     private float valLoftsgang = 25.5f;
@@ -135,6 +139,16 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     };
 
+    private final Runnable mVgNoUpdater = new Runnable() {
+        @Override
+        public void run() {
+            if (currentMode == ViewMode.SETTINGS) {
+                requestVgNoScreenshot(true);
+            }
+            mUpdateHandler.postDelayed(this, 60_000);
+        }
+    };
+
     public MainCarScreen(@NonNull CarContext carContext) {
         super(carContext);
         
@@ -181,6 +195,13 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
         mUpdateHandler.removeCallbacks(mHomeUpdater);
         mUpdateHandler.post(mHomeUpdater);
+
+        mUpdateHandler.removeCallbacks(mVgNoUpdater);
+        mUpdateHandler.post(mVgNoUpdater);
+
+        if (currentMode == ViewMode.SETTINGS) {
+            requestVgNoScreenshot(false);
+        }
     }
 
     @Override
@@ -200,6 +221,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         mUpdateHandler.removeCallbacks(mMailboxUpdater);
         mUpdateHandler.removeCallbacks(mWeatherUpdater);
         mUpdateHandler.removeCallbacks(mHomeUpdater);
+        mUpdateHandler.removeCallbacks(mVgNoUpdater);
     }
 
     private void drawCameraImage() {
@@ -320,42 +342,51 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
         canvas.drawColor(android.graphics.Color.parseColor("#0D1117"));
 
-        float topPad = cH * 0.105f;
-        float x = vL + 60f;
-        float y = vT + topPad + 40f;
+        float splitX = cW * 0.5f;
+        drawVgNoPanel(canvas, 0f, 0f, splitX, cH);
+
+        Paint dividerPaint = new Paint();
+        dividerPaint.setColor(android.graphics.Color.parseColor("#222633"));
+        dividerPaint.setStrokeWidth(2f);
+        canvas.drawLine(splitX, 0f, splitX, cH, dividerPaint);
+
+        float rightPad = 20f;
+        float x = splitX + rightPad;
+        float y = vT + 28f;
+        float rightWidth = cW - splitX - rightPad * 2f;
 
         Paint titlePaint = new Paint();
         titlePaint.setAntiAlias(true);
         titlePaint.setColor(android.graphics.Color.WHITE);
-        titlePaint.setTextSize(72f);
+        titlePaint.setTextSize(30f);
         titlePaint.setTypeface(Typeface.DEFAULT_BOLD);
         canvas.drawText("Innstillinger", x, y, titlePaint);
-        y += 90f;
+        y += 36f;
 
         Paint sectionPaint = new Paint();
         sectionPaint.setAntiAlias(true);
         sectionPaint.setColor(android.graphics.Color.parseColor("#CCCCCC"));
-        sectionPaint.setTextSize(48f);
+        sectionPaint.setTextSize(24f);
         sectionPaint.setTypeface(Typeface.DEFAULT_BOLD);
         canvas.drawText("Detaljside", x, y, sectionPaint);
-        y += 70f;
+        y += 30f;
 
-        float optionW = Math.min(420f, (vW - 120f) / 2f);
-        float optionH = 88f;
-        float optionGap = 24f;
+        float optionGap = 10f;
+        float optionW = Math.min(200f, (rightWidth - optionGap) / 2f);
+        float optionH = 40f;
         settingsVersion1Bounds.set(x, y, x + optionW, y + optionH);
         settingsVersion2Bounds.set(x + optionW + optionGap, y, x + optionW + optionGap + optionW, y + optionH);
         drawSettingsOption(canvas, settingsVersion1Bounds, "Versjon 1", detailPageVersion == 1);
         drawSettingsOption(canvas, settingsVersion2Bounds, "Versjon 2", detailPageVersion == 2);
-        y += optionH + 80f;
+        y += optionH + 32f;
 
         canvas.drawText("Skjerminfo", x, y, sectionPaint);
-        y += 70f;
+        y += 28f;
 
         Paint linePaint = new Paint();
         linePaint.setAntiAlias(true);
         linePaint.setColor(android.graphics.Color.parseColor("#CCCCCC"));
-        linePaint.setTextSize(44f);
+        linePaint.setTextSize(22f);
         String[] lines = {
                 "Canvas:  " + cW + " \u00d7 " + cH + " px",
                 "Synlig:  " + vW + " \u00d7 " + vH + " px",
@@ -363,30 +394,100 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         };
         for (String line : lines) {
             canvas.drawText(line, x, y, linePaint);
-            y += 64f;
+            y += 28f;
         }
+    }
+
+    private void drawVgNoPanel(Canvas canvas, float left, float top, float right, float bottom) {
+        Paint bg = new Paint();
+        bg.setColor(android.graphics.Color.parseColor("#10141C"));
+        canvas.drawRect(left, top, right, bottom, bg);
+
+        if (vgNoBitmap == null || vgNoBitmap.isRecycled()) {
+            Paint textPaint = new Paint();
+            textPaint.setAntiAlias(true);
+            textPaint.setColor(android.graphics.Color.parseColor("#8E9AA8"));
+            textPaint.setTextSize(36f);
+            String msg = vgNoCaptureInProgress ? "Laster VG.no..." : "VG.no utilgjengelig";
+            canvas.drawText(msg, left + 28f, top + (bottom - top) * 0.5f, textPaint);
+            return;
+        }
+
+        float panelW = right - left;
+        float panelH = bottom - top;
+        float bmpW = vgNoBitmap.getWidth();
+        float bmpH = vgNoBitmap.getHeight();
+        if (bmpW <= 0f || bmpH <= 0f) return;
+
+        float scale = panelW / bmpW;
+        float srcH = Math.min(bmpH, panelH / scale);
+        android.graphics.Rect src = new android.graphics.Rect(0, 0, (int) bmpW, (int) srcH);
+        android.graphics.RectF dst = new android.graphics.RectF(left, top, right, top + srcH * scale);
+        Paint bmpPaint = new Paint();
+        bmpPaint.setFilterBitmap(false);
+        bmpPaint.setAntiAlias(false);
+        canvas.drawBitmap(vgNoBitmap, src, dst, bmpPaint);
+    }
+
+    private void requestVgNoScreenshot(boolean forceRefresh) {
+        if (vgNoCaptureInProgress) return;
+        if (!forceRefresh && vgNoBitmap != null && !vgNoBitmap.isRecycled()) return;
+
+        vgNoCaptureInProgress = true;
+        int captureWidth = Math.max(360, lastCanvasWidth > 0 ? lastCanvasWidth / 2 : 480);
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+        VgNoScreenshotCapturer.capture(getCarContext().getApplicationContext(), captureWidth, new VgNoScreenshotCapturer.Callback() {
+            @Override
+            public void onBitmapReady(@NonNull Bitmap bitmap) {
+                mainHandler.post(() -> applyVgNoBitmap(bitmap));
+            }
+
+            @Override
+            public void onError() {
+                mainHandler.post(() -> {
+                    vgNoCaptureInProgress = false;
+                    refreshSettingsIfVisible();
+                });
+            }
+        });
+    }
+
+    private void applyVgNoBitmap(@NonNull Bitmap bitmap) {
+        if (vgNoBitmap != null && !vgNoBitmap.isRecycled()) {
+            vgNoBitmap.recycle();
+        }
+        vgNoBitmap = bitmap;
+        vgNoCaptureInProgress = false;
+        refreshSettingsIfVisible();
+    }
+
+    private void refreshSettingsIfVisible() {
+        if (currentMode != ViewMode.SETTINGS) return;
+        drawCameraImage();
+        invalidate();
     }
 
     private void drawSettingsOption(Canvas canvas, android.graphics.RectF bounds, String label, boolean selected) {
         Paint bg = new Paint();
         bg.setAntiAlias(true);
         bg.setColor(selected ? android.graphics.Color.parseColor("#1A3B82F6") : android.graphics.Color.parseColor("#151821"));
-        canvas.drawRoundRect(bounds, 18f, 18f, bg);
+        canvas.drawRoundRect(bounds, 8f, 8f, bg);
 
         Paint stroke = new Paint();
         stroke.setAntiAlias(true);
         stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(3f);
+        stroke.setStrokeWidth(1.5f);
         stroke.setColor(selected ? android.graphics.Color.parseColor("#3B82F6") : android.graphics.Color.parseColor("#222633"));
-        canvas.drawRoundRect(bounds, 18f, 18f, stroke);
+        canvas.drawRoundRect(bounds, 8f, 8f, stroke);
 
         Paint text = new Paint();
         text.setAntiAlias(true);
         text.setColor(android.graphics.Color.WHITE);
-        text.setTextSize(40f);
+        text.setTextSize(22f);
         text.setTypeface(Typeface.DEFAULT_BOLD);
-        float textY = bounds.top + bounds.height() / 2f + 14f;
-        canvas.drawText(label, bounds.left + 28f, textY, text);
+        Paint.FontMetrics fm = text.getFontMetrics();
+        float textY = bounds.centerY() - (fm.ascent + fm.descent) / 2f;
+        canvas.drawText(label, bounds.left + 12f, textY, text);
     }
 
     @NonNull
@@ -465,6 +566,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                     .setOnClickListener(() -> {
                         currentMode = ViewMode.SETTINGS;
                         saveViewMode(ViewMode.SETTINGS);
+                        requestVgNoScreenshot(false);
                         drawCameraImage();
                         invalidate();
                     })

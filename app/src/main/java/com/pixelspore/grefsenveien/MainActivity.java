@@ -30,6 +30,8 @@ import com.google.android.gms.tasks.Task;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static volatile MainActivity sRunningInstance;
+
     private String garageStatus = "";
     private String gateStatus = "";
     private TextView statusText;
@@ -42,7 +44,6 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private GoogleSignInClient mGoogleSignInClient;
     private ActivityResultLauncher<Intent> signInLauncher;
-
     private final Handler mUpdateHandler = new Handler(Looper.getMainLooper());
     private final Runnable mImageUpdater = new Runnable() {
         @Override
@@ -63,6 +64,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        sRunningInstance = this;
         setContentView(R.layout.activity_main);
 
         statusText = findViewById(R.id.statusText);
@@ -150,6 +152,18 @@ public class MainActivity extends AppCompatActivity {
         super.onPause();
         mUpdateHandler.removeCallbacks(mImageUpdater);
         mUpdateHandler.removeCallbacks(mDoorbellUpdater);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (sRunningInstance == this) {
+            sRunningInstance = null;
+        }
+        super.onDestroy();
+    }
+
+    static MainActivity getRunningInstance() {
+        return sRunningInstance;
     }
 
     private void checkLoginStatus() {
