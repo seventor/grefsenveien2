@@ -849,7 +849,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
             List<float[]> todayTempPoints = new ArrayList<>();
             List<float[]> yesterdayTempPoints = new ArrayList<>();
-            float[] rainByDay = new float[7];
+            float[] rainByDay = new float[8];
             float[] hourlyRain = new float[24];
             List<float[]> soilPoints = new ArrayList<>();
             float[] hourlySolar = new float[24];
@@ -914,10 +914,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 Log.w("GrefsenveienApp", "Failed to fetch vaerstasjon_temp", e);
             }
 
-            // 2. Fetch Rain 7d
+            // 2. Fetch Rain 8d
             try {
                 String rainUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
-                        + isoFmt.format(new Date(now - 7L * 24 * 3600_000))
+                        + isoFmt.format(new Date(now - 8L * 24 * 3600_000))
                         + "?filter_entity_id=sensor.vaerstasjon_daily_rain"
                         + "&end_time=" + isoFmt.format(new Date(now));
                 HttpURLConnection conn = (HttpURLConnection) new URL(rainUrl).openConnection();
@@ -949,7 +949,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         }
                         SimpleDateFormat dayFmt2 = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
                         Calendar cal = Calendar.getInstance();
-                        for (int i = 0; i < 7; i++) {
+                        for (int i = 0; i < 8; i++) {
                             Float val = maxPerDay.get(dayFmt2.format(cal.getTime()));
                             rainByDay[i] = val != null ? val : 0f;
                             cal.add(Calendar.DAY_OF_MONTH, -1);
@@ -1316,6 +1316,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         Paint lblPy = new Paint(); lblPy.setAntiAlias(true); lblPy.setColor(android.graphics.Color.WHITE); lblPy.setTextSize(axisTxt); lblPy.setTextAlign(Paint.Align.RIGHT);
         Paint lblHdr = new Paint(); lblHdr.setAntiAlias(true); lblHdr.setColor(android.graphics.Color.WHITE); lblHdr.setTextSize(hdrTxt); lblHdr.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
         Paint lblVal = new Paint(); lblVal.setAntiAlias(true); lblVal.setColor(android.graphics.Color.WHITE); lblVal.setTextSize(hdrTxt); lblVal.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        Paint lblValNormal = new Paint(lblVal); lblValNormal.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
         Paint barLblP = new Paint(); barLblP.setAntiAlias(true); barLblP.setColor(android.graphics.Color.WHITE); barLblP.setTextSize(axisTxt);
         Paint dayLblP = new Paint(); dayLblP.setAntiAlias(true); dayLblP.setColor(android.graphics.Color.WHITE); dayLblP.setTextSize(axisTxt);
 
@@ -1348,11 +1349,13 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float tGW = colW - gLeft - wPad;
         float tGH = chartRowH - gTopOff - gBotOff;
 
-        // === ROW 1: Utetemperatur | Aktuelt temp | Regn 7 dager ===
+        // === ROW 1: Utetemperatur | Regn 8d | Aktuelt temp ===
+
+        // --- Utetemperatur ---
         drawWidgetCard(c, col1L, r1Top, col1R, r1Bot, S);
         c.drawText("UTE 24t", col1L + wPad, r1Top + hdrOff, lblHdr);
         String tHdr = String.format(Locale.getDefault(), "%.1f\u00b0\u2013%.1f\u00b0", todayMinT, todayMaxT);
-        c.drawText(tHdr, col1R - wPad - lblVal.measureText(tHdr), r1Top + hdrOff, lblVal);
+        c.drawText(tHdr, col1R - wPad - lblValNormal.measureText(tHdr), r1Top + hdrOff, lblValNormal);
         float tGL = col1L + gLeft, tGT = r1Top + gTopOff;
         for (int i = 0; i <= 4; i++) { float frac = i/4f, y = tGT + tGH*(1-frac); c.drawLine(tGL, y, tGL+tGW, y, gridP); c.drawText(String.format(Locale.getDefault(), "%.0f\u00b0", minT+range*frac), tGL-4f*S, y+6f*S, lblPy); }
         for (int hr = 0; hr <= 24; hr += 6) {
@@ -1372,9 +1375,98 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             drawOutdoorTempLine(c, todayTempPoints, minT, range, tGL, tGT, tGW, tGH, colorToday, S, lineTension, colorTodayFill);
         }
 
-        // --- Aktuelt Utetemperatur ---
+        // --- Regn 8 dager ---
         drawWidgetCard(c, col2L, r1Top, col2R, r1Bot, S);
-        c.drawText("N\u00c5", col2L + wPad, r1Top + hdrOff, lblHdr);
+        c.drawText("REGN 8d", col2L + wPad, r1Top + hdrOff, lblHdr);
+        float todayRain = rainByDay[0];
+        float weekRain = 0f;
+        java.util.Calendar weekCal = java.util.Calendar.getInstance();
+        weekCal.setFirstDayOfWeek(java.util.Calendar.MONDAY);
+        int thisWeek = weekCal.get(java.util.Calendar.WEEK_OF_YEAR);
+        int thisYear = weekCal.get(java.util.Calendar.YEAR);
+        for (int i = 0; i < 8; i++) {
+            if (weekCal.get(java.util.Calendar.WEEK_OF_YEAR) == thisWeek
+                    && weekCal.get(java.util.Calendar.YEAR) == thisYear) {
+                weekRain += rainByDay[i];
+            }
+            weekCal.add(java.util.Calendar.DAY_OF_YEAR, -1);
+        }
+        String weekRainStr = (Math.abs(weekRain - Math.round(weekRain)) < 0.05f)
+                ? String.format(Locale.getDefault(), "%.0fmm", weekRain)
+                : String.format(Locale.getDefault(), "%.1fmm", weekRain);
+        String todayRainStr = String.format(Locale.getDefault(), "%.1f", todayRain).replace('.', ',') + "mm";
+        String rainHdrStr = weekRainStr + " - Idag: " + todayRainStr;
+        c.drawText(rainHdrStr, col2R - wPad - lblValNormal.measureText(rainHdrStr), r1Top + hdrOff, lblValNormal);
+        float rainTopExtra = Math.max(10f, 14f * S);
+        float rainYLabelW = Math.max(14f, 18f * S);
+        float r7GT = r1Top + gTopOff + rainTopExtra;
+        float r7GH = tGH - rainTopExtra;
+        float r7GL = col2L + wPad + rainYLabelW;
+        float r7GW = col2R - col2L - wPad - rainYLabelW - wPad;
+        float r7Base = r7GT + r7GH;
+        float maxRain = 1f;
+        for (float r : rainByDay) maxRain = Math.max(maxRain, r);
+        int maxMmLine = Math.max(1, (int) Math.ceil(maxRain));
+        Paint rainYLblP = new Paint(lblPy);
+        rainYLblP.setTextAlign(Paint.Align.LEFT);
+        for (int mm = 1; mm <= maxMmLine; mm++) {
+            float y = r7Base - r7GH * (mm / maxRain);
+            c.drawLine(r7GL, y, r7GL + r7GW, y, gridP);
+            c.drawText(String.format(Locale.getDefault(), "%d", mm), col2L + wPad, y + 6f * S, rainYLblP);
+        }
+        c.drawLine(r7GL, r7Base, r7GL + r7GW, r7Base, gridP);
+        float bGap = r7GW / 8f;
+        float bW = bGap * 0.55f;
+        float barRadius = Math.max(1.5f, 2f * S);
+        String[] dayNames = new String[8];
+        dayNames[0] = "I dag";
+        java.text.SimpleDateFormat daySdf = new java.text.SimpleDateFormat("E", new java.util.Locale("no", "NO"));
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        for (int i = 1; i < 8; i++) {
+            java.util.Calendar tempCal = (java.util.Calendar) cal.clone();
+            tempCal.add(java.util.Calendar.DAY_OF_YEAR, -i);
+            String name = daySdf.format(tempCal.getTime());
+            if (name.endsWith(".")) name = name.substring(0, name.length() - 1);
+            if (name.length() > 0) name = name.substring(0, 1).toUpperCase() + name.substring(1);
+            dayNames[i] = name;
+        }
+        Paint barP = new Paint();
+        barP.setAntiAlias(false);
+        Paint zeroDashP = new Paint();
+        zeroDashP.setColor(android.graphics.Color.parseColor("#4FA5F7"));
+        zeroDashP.setStrokeWidth(Math.max(1.5f, 2f * S));
+        zeroDashP.setAntiAlias(false);
+        zeroDashP.setStrokeCap(Paint.Cap.BUTT);
+        Paint mmLblP = new Paint();
+        mmLblP.setAntiAlias(true);
+        mmLblP.setColor(android.graphics.Color.WHITE);
+        mmLblP.setTextSize(axisTxt);
+        mmLblP.setTextAlign(Paint.Align.CENTER);
+        float dashW = bW * 0.72f;
+        for (int i = 0; i < 8; i++) {
+            float bCX = r7GL + r7GW - bGap * i - bGap / 2f;
+            float rainVal = rainByDay[i];
+            if (rainVal > 0f) {
+                float bH = r7GH * (rainVal / maxRain);
+                float bT = r7Base - bH;
+                barP.setShader(new android.graphics.LinearGradient(
+                        0, r7Base, 0, bT,
+                        android.graphics.Color.parseColor("#1B6ADF"),
+                        android.graphics.Color.parseColor("#4FA5F7"),
+                        android.graphics.Shader.TileMode.CLAMP));
+                c.drawRoundRect(bCX - bW / 2f, bT, bCX + bW / 2f, r7Base, barRadius, barRadius, barP);
+                String mmStr = String.format(Locale.getDefault(), "%.1f", rainVal);
+                float mmY = Math.max(r7GT + mmLblP.getTextSize(), bT - Math.max(8f, 12f * S));
+                c.drawText(mmStr, bCX, mmY, mmLblP);
+            } else {
+                c.drawLine(bCX - dashW / 2f, r7Base, bCX + dashW / 2f, r7Base, zeroDashP);
+            }
+            c.drawText(dayNames[i], bCX - dayLblP.measureText(dayNames[i]) / 2f, r7Base + xAxisYOffset, dayLblP);
+        }
+
+        // --- Aktuelt Utetemperatur ---
+        drawWidgetCard(c, col3L, r1Top, col3R, r1Bot, S);
+        c.drawText("N\u00c5", col3L + wPad, r1Top + hdrOff, lblHdr);
         Paint naP = new Paint(); naP.setAntiAlias(true); naP.setColor(android.graphics.Color.WHITE); naP.setTextSize(44f*S); naP.setTypeface(Typeface.DEFAULT_BOLD);
         String tempStr = String.format(Locale.getDefault(), "%.1f\u00b0C", curTemp);
         String humStr = String.format(Locale.getDefault(), "%.0f%%", valHumidity);
@@ -1384,7 +1476,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float iconTextGap = 6f * S;
         float groupGap = 20f * S;
         float totalW = iconSize + iconTextGap + tempTextW + groupGap + iconSize + iconTextGap + humTextW;
-        float startX = col2L + (colW - totalW) / 2f;
+        float startX = col3L + (colW - totalW) / 2f;
         float textY = r1Top + chartRowH * 0.51f + (naP.getTextSize() * 0.33f);
         float iconY = textY - naP.getTextSize() * 0.78f;
         try {
@@ -1413,34 +1505,6 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             drawDropletIcon(c, humGroupX, iconY, iconSize, S, naP);
         }
         c.drawText(humStr, humGroupX + iconSize + iconTextGap, textY, naP);
-
-        // --- Regn 7 dager ---
-        drawWidgetCard(c, col3L, r1Top, col3R, r1Bot, S);
-        c.drawText("REGN 7d", col3L + wPad, r1Top + hdrOff, lblHdr);
-        float totalRain = 0; for (float v : rainByDay) totalRain += v;
-        c.drawText(String.format(Locale.getDefault(), "%.1f mm", totalRain), col3R-wPad-lblVal.measureText(String.format(Locale.getDefault(), "%.1f mm", totalRain)), r1Top+hdrOff, lblVal);
-        float r7GL = col3L+gLeft, r7GT = r1Top+gTopOff, r7GW = tGW, r7GH = tGH;
-        c.drawLine(r7GL, r7GT, r7GL+r7GW, r7GT, gridP); c.drawLine(r7GL, r7GT+r7GH, r7GL+r7GW, r7GT+r7GH, gridP);
-        float maxRain = 1f; for (float r : rainByDay) maxRain = Math.max(maxRain, r);
-        c.drawText(String.format(Locale.getDefault(), "%.1f", maxRain), r7GL-4f*S, r7GT+14f*S, lblPy);
-        float bGap = r7GW/7f, bW = bGap*0.55f;
-        String[] dayNames = new String[7];
-        dayNames[0] = "I dag";
-        java.text.SimpleDateFormat daySdf = new java.text.SimpleDateFormat("E", new java.util.Locale("no", "NO"));
-        java.util.Calendar cal = java.util.Calendar.getInstance();
-        for (int i = 1; i < 7; i++) {
-            java.util.Calendar tempCal = (java.util.Calendar) cal.clone();
-            tempCal.add(java.util.Calendar.DAY_OF_YEAR, -i);
-            String name = daySdf.format(tempCal.getTime());
-            if (name.endsWith(".")) name = name.substring(0, name.length() - 1);
-            if (name.length() > 0) name = name.substring(0, 1).toUpperCase() + name.substring(1);
-            dayNames[i] = name;
-        }
-        Paint barP = new Paint(); barP.setAntiAlias(true);
-        for (int i = 0; i < 7; i++) { float bCX = r7GL+r7GW-bGap*i-bGap/2f; float bH = rainByDay[i]>0 ? r7GH*(rainByDay[i]/maxRain) : 3f; float bT = r7GT+r7GH-bH;
-            barP.setShader(new android.graphics.LinearGradient(0, r7GT+r7GH, 0, bT, android.graphics.Color.parseColor("#1B6ADF"), android.graphics.Color.parseColor("#4FA5F7"), android.graphics.Shader.TileMode.CLAMP));
-            c.drawRoundRect(bCX-bW/2f, bT, bCX+bW/2f, r7GT+r7GH+6f*S, 6f*S, 6f*S, barP);
-            c.drawText(dayNames[i], bCX-dayLblP.measureText(dayNames[i])/2f, r7GT+r7GH+xAxisYOffset, dayLblP); }
 
         // === ROW 2: Regnstyrke | Solstraling | Jordfuktighet ===
         // --- Regnstyrke ---
