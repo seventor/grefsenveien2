@@ -72,10 +72,12 @@ public class MainActivity extends AppCompatActivity {
         tvMailboxTimestamp = findViewById(R.id.tvMailboxTimestamp);
         tvLoggedInAs = findViewById(R.id.tvLoggedInAs);
         View btnGarage = findViewById(R.id.btnGarage);
+        View btnGaragePlus = findViewById(R.id.btnGaragePlus);
         View btnGate = findViewById(R.id.btnGate);
         View btnLogout = findViewById(R.id.btnLogout);
 
         btnGarage.setOnClickListener(v -> makeUrlRequest("garasjen"));
+        btnGaragePlus.setOnClickListener(v -> makeUrlRequest("garasjen", 60));
         btnGate.setOnClickListener(v -> makeUrlRequest("porten"));
         btnLogout.setOnClickListener(v -> handleLogout());
         
@@ -332,9 +334,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void makeUrlRequest(String targetName) {
+        makeUrlRequest(targetName, null);
+    }
+
+    private void makeUrlRequest(String targetName, Integer delaySeconds) {
         // Update UI to show waiting state
         if (targetName.equals("garasjen")) {
-            garageStatus = "Sender melding...";
+            garageStatus = delaySeconds != null
+                    ? "Sender melding (+" + delaySeconds + "s)..."
+                    : "Sender melding...";
         } else {
             gateStatus = "Sender melding...";
         }
@@ -360,7 +368,11 @@ public class MainActivity extends AppCompatActivity {
                 connection.setDoOutput(true);
 
                 String userEmail = prefs.getString("user_email", "unknown");
-                String payload = "{\"token\":\"Xi3gQF4GTFR7aENMkMjftt4P\",\"user\":\"" + userEmail + "\"}";
+                String payload = "{\"token\":\"Xi3gQF4GTFR7aENMkMjftt4P\",\"user\":\"" + userEmail + "\"";
+                if (delaySeconds != null && targetName.equals("garasjen")) {
+                    payload += ",\"delay\":" + delaySeconds;
+                }
+                payload += "}";
 
                 try (java.io.OutputStream os = connection.getOutputStream()) {
                     byte[] input = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8);

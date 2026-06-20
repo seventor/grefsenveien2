@@ -296,6 +296,14 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                     .build());
             actionStripBuilder.addAction(
                 new Action.Builder()
+                    .setTitle("+1min")
+                    .setFlags(Action.FLAG_IS_PERSISTENT)
+                    .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(), R.drawable.ic_material_garage_door)).build())
+                    .setBackgroundColor(CarColor.DEFAULT)
+                    .setOnClickListener(() -> makeUrlRequest("garasjen", 60))
+                    .build());
+            actionStripBuilder.addAction(
+                new Action.Builder()
                     .setTitle("Port")
                     .setFlags(Action.FLAG_IS_PERSISTENT)
                     .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(), R.drawable.ic_material_outdoor_garden)).build())
@@ -334,7 +342,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             .addAction(
                 new Action.Builder()
                     .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(),
-                        currentMode == ViewMode.YARD ? R.drawable.ic_tab_yard : R.drawable.ic_tab_yard_outline)).build())
+                        currentMode == ViewMode.YARD ? R.drawable.ic_tab_car : R.drawable.ic_tab_car_outline)).build())
                     .setOnClickListener(() -> {
                         currentMode = ViewMode.YARD;
                         saveViewMode(ViewMode.YARD);
@@ -496,10 +504,16 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     }
 
     private void makeUrlRequest(String targetName) {
+        makeUrlRequest(targetName, null);
+    }
+
+    private void makeUrlRequest(String targetName, Integer delaySeconds) {
         // Vis en umiddelbar beskjed om at vi prøver å sende signalet
         String statusText;
         if (targetName.equals("garasjen")) {
-            statusText = "Åpner/lukker Garasje...";
+            statusText = delaySeconds != null
+                    ? "Åpner/lukker Garasje (+" + delaySeconds + "s)..."
+                    : "Åpner/lukker Garasje...";
         } else {
             statusText = "Åpner/lukker Port...";
         }
@@ -533,7 +547,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 connection.setRequestProperty("Content-Type", "application/json");
                 connection.setDoOutput(true);
 
-                String payload = "{\"token\":\"Xi3gQF4GTFR7aENMkMjftt4P\",\"user\":\"" + savedEmail + "\"}";
+                String payload = "{\"token\":\"Xi3gQF4GTFR7aENMkMjftt4P\",\"user\":\"" + savedEmail + "\"";
+                if (delaySeconds != null && targetName.equals("garasjen")) {
+                    payload += ",\"delay\":" + delaySeconds;
+                }
+                payload += "}";
 
                 try (java.io.OutputStream os = connection.getOutputStream()) {
                     byte[] input = payload.getBytes(java.nio.charset.StandardCharsets.UTF_8);
