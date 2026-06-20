@@ -849,7 +849,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
             List<float[]> todayTempPoints = new ArrayList<>();
             List<float[]> yesterdayTempPoints = new ArrayList<>();
-            float[] rainByDay = new float[8];
+            float[] rainByDay = new float[14];
             float[] hourlyRain = new float[24];
             List<float[]> soilPoints = new ArrayList<>();
             float[] hourlySolar = new float[24];
@@ -914,10 +914,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 Log.w("GrefsenveienApp", "Failed to fetch vaerstasjon_temp", e);
             }
 
-            // 2. Fetch Rain 8d
+            // 2. Fetch Rain 14d
             try {
                 String rainUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
-                        + isoFmt.format(new Date(now - 8L * 24 * 3600_000))
+                        + isoFmt.format(new Date(now - 14L * 24 * 3600_000))
                         + "?filter_entity_id=sensor.vaerstasjon_daily_rain"
                         + "&end_time=" + isoFmt.format(new Date(now));
                 HttpURLConnection conn = (HttpURLConnection) new URL(rainUrl).openConnection();
@@ -949,7 +949,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         }
                         SimpleDateFormat dayFmt2 = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
                         Calendar cal = Calendar.getInstance();
-                        for (int i = 0; i < 8; i++) {
+                        for (int i = 0; i < 14; i++) {
                             Float val = maxPerDay.get(dayFmt2.format(cal.getTime()));
                             rainByDay[i] = val != null ? val : 0f;
                             cal.add(Calendar.DAY_OF_MONTH, -1);
@@ -1349,7 +1349,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float tGW = colW - gLeft - wPad;
         float tGH = chartRowH - gTopOff - gBotOff;
 
-        // === ROW 1: Utetemperatur | Regn 8d | Aktuelt temp ===
+        // === ROW 1: Utetemperatur | Regn 14d | Aktuelt temp ===
 
         // --- Utetemperatur ---
         drawWidgetCard(c, col1L, r1Top, col1R, r1Bot, S);
@@ -1358,11 +1358,16 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         c.drawText(tHdr, col1R - wPad - lblValNormal.measureText(tHdr), r1Top + hdrOff, lblValNormal);
         float tGL = col1L + gLeft, tGT = r1Top + gTopOff;
         for (int i = 0; i <= 4; i++) { float frac = i/4f, y = tGT + tGH*(1-frac); c.drawLine(tGL, y, tGL+tGW, y, gridP); c.drawText(String.format(Locale.getDefault(), "%.0f\u00b0", minT+range*frac), tGL-4f*S, y+6f*S, lblPy); }
+        Paint hourGridP = new Paint(gridP);
+        hourGridP.setColor(android.graphics.Color.parseColor("#15202B"));
+        for (int hr = 0; hr <= 24; hr++) {
+            float x = tGL + tGW * (hr / 24f);
+            c.drawLine(x, tGT, x, tGT + tGH, hr % 6 == 0 ? gridP : hourGridP);
+        }
         for (int hr = 0; hr <= 24; hr += 6) {
             float x = tGL + tGW * (hr / 24f);
-            c.drawLine(x, tGT, x, tGT+tGH, gridP);
             String sl = String.format(Locale.getDefault(), "%02d", hr);
-            c.drawText(sl, x-lblP.measureText(sl)/2f, tGT+tGH+xAxisYOffset, lblP);
+            c.drawText(sl, x - lblP.measureText(sl) / 2f, tGT + tGH + xAxisYOffset, lblP);
         }
         int colorToday = android.graphics.Color.parseColor("#27C93F");
         int colorTodayFill = android.graphics.Color.parseColor("#1A27C93F");
@@ -1377,14 +1382,14 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
         // --- Regn 8 dager ---
         drawWidgetCard(c, col2L, r1Top, col2R, r1Bot, S);
-        c.drawText("REGN 8d", col2L + wPad, r1Top + hdrOff, lblHdr);
+        c.drawText("REGN 14d", col2L + wPad, r1Top + hdrOff, lblHdr);
         float todayRain = rainByDay[0];
         float weekRain = 0f;
         java.util.Calendar weekCal = java.util.Calendar.getInstance();
         weekCal.setFirstDayOfWeek(java.util.Calendar.MONDAY);
         int thisWeek = weekCal.get(java.util.Calendar.WEEK_OF_YEAR);
         int thisYear = weekCal.get(java.util.Calendar.YEAR);
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 14; i++) {
             if (weekCal.get(java.util.Calendar.WEEK_OF_YEAR) == thisWeek
                     && weekCal.get(java.util.Calendar.YEAR) == thisYear) {
                 weekRain += rainByDay[i];
@@ -1415,20 +1420,19 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             c.drawText(String.format(Locale.getDefault(), "%d", mm), col2L + wPad, y + 6f * S, rainYLblP);
         }
         c.drawLine(r7GL, r7Base, r7GL + r7GW, r7Base, gridP);
-        float bGap = r7GW / 8f;
-        float bW = bGap * 0.55f;
+        float bGap = r7GW / 14f;
+        float bW = bGap * 0.72f;
         float barRadius = Math.max(1.5f, 2f * S);
-        String[] dayNames = new String[8];
-        dayNames[0] = "I dag";
+        String[] dayNames = new String[14];
+        dayNames[0] = "Idag";
         java.text.SimpleDateFormat daySdf = new java.text.SimpleDateFormat("E", new java.util.Locale("no", "NO"));
         java.util.Calendar cal = java.util.Calendar.getInstance();
-        for (int i = 1; i < 8; i++) {
+        for (int i = 1; i < 14; i++) {
             java.util.Calendar tempCal = (java.util.Calendar) cal.clone();
             tempCal.add(java.util.Calendar.DAY_OF_YEAR, -i);
             String name = daySdf.format(tempCal.getTime());
             if (name.endsWith(".")) name = name.substring(0, name.length() - 1);
-            if (name.length() > 0) name = name.substring(0, 1).toUpperCase() + name.substring(1);
-            dayNames[i] = name;
+            dayNames[i] = name.length() > 0 ? name.substring(0, 1).toUpperCase() : "?";
         }
         Paint barP = new Paint();
         barP.setAntiAlias(false);
@@ -1443,7 +1447,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         mmLblP.setTextSize(axisTxt);
         mmLblP.setTextAlign(Paint.Align.CENTER);
         float dashW = bW * 0.72f;
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 14; i++) {
             float bCX = r7GL + r7GW - bGap * i - bGap / 2f;
             float rainVal = rainByDay[i];
             if (rainVal > 0f) {
@@ -1456,7 +1460,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         android.graphics.Shader.TileMode.CLAMP));
                 c.drawRoundRect(bCX - bW / 2f, bT, bCX + bW / 2f, r7Base, barRadius, barRadius, barP);
                 String mmStr = String.format(Locale.getDefault(), "%.1f", rainVal);
-                float mmY = Math.max(r7GT + mmLblP.getTextSize(), bT - Math.max(8f, 12f * S));
+                android.graphics.Paint.FontMetrics mmFm = mmLblP.getFontMetrics();
+                float mmY = bT - Math.max(4f * S, mmFm.descent + 2f * S);
                 c.drawText(mmStr, bCX, mmY, mmLblP);
             } else {
                 c.drawLine(bCX - dashW / 2f, r7Base, bCX + dashW / 2f, r7Base, zeroDashP);
@@ -1570,6 +1575,16 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 c.drawLine(x, sGT, x, sGT+sGH, gridP);
             }
             Paint noDP = new Paint(); noDP.setColor(android.graphics.Color.GRAY); noDP.setTextSize(baseTxt); noDP.setAntiAlias(true); c.drawText("Ingen data", sGL+sGW*0.2f, sGT+sGH/2f, noDP);
+        }
+
+        // === ROW 3: Camera widgets (Versjon 2 only) ===
+        if (detailPageVersion == 2) {
+            float cam1L = col1L, cam1R = col1R;
+            float cam2L = col2L, cam2R = col2R;
+            float cam3L = col3L, cam3R = col3R;
+            drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, cam1L, r3Top, cam1R, r3Bot, true, false);
+            drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, cam2L, r3Top, cam2R, r3Bot, false, true);
+            drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, cam3L, r3Top, cam3R, r3Bot, false, false);
         }
 
         // === ROW 3: Cameras + room cards (Versjon 1 only) ===
@@ -1811,7 +1826,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         bg.setStyle(android.graphics.Paint.Style.FILL);
         bg.setAntiAlias(true);
         canvas.drawRoundRect(left, top, right, bottom, cornerRadius, cornerRadius, bg);
+        drawWidgetCardBorder(canvas, left, top, right, bottom, S);
+    }
 
+    private void drawWidgetCardBorder(android.graphics.Canvas canvas, float left, float top, float right, float bottom, float S) {
+        float cornerRadius = 18f;
         android.graphics.Paint stroke = new android.graphics.Paint();
         stroke.setColor(android.graphics.Color.parseColor("#222633"));
         stroke.setStyle(android.graphics.Paint.Style.STROKE);
@@ -1869,7 +1888,14 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.drawPath(path, p);
     }
 
-    private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr, float left, float top, float right, float bottom) {
+    private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr,
+            float left, float top, float right, float bottom) {
+        boolean yardCrop = title != null && (title.equals("G\u00c5RDSPLASSEN") || title.equals("GÅRDSPLASSEN"));
+        drawCameraWidget(canvas, bmp, title, tsStr, left, top, right, bottom, false, yardCrop);
+    }
+
+    private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr,
+            float left, float top, float right, float bottom, boolean fitContain, boolean yardCropOffset) {
         float cardS = (right - left) / 480f;
         drawWidgetCard(canvas, left, top, right, bottom, cardS);
         if (bmp != null) {
@@ -1877,59 +1903,64 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             clipPath.addRoundRect(new android.graphics.RectF(left, top, right, bottom), 18f, 18f, android.graphics.Path.Direction.CW);
             canvas.save();
             canvas.clipPath(clipPath);
-            
+
             float cardW = right - left;
             float cardH = bottom - top;
             float bmpW = bmp.getWidth();
             float bmpH = bmp.getHeight();
-            float scale = Math.max(cardW / bmpW, cardH / bmpH);
-            if (title != null && (title.equals("G\u00c5RDSPLASSEN") || title.equals("GÅRDSPLASSEN"))) {
-                scale *= 1.10f;
+            float scale;
+            if (fitContain) {
+                scale = Math.min(cardW / bmpW, cardH / bmpH);
+            } else {
+                scale = Math.max(cardW / bmpW, cardH / bmpH);
+                if (yardCropOffset) {
+                    scale *= 1.10f;
+                }
             }
             float drawW = bmpW * scale;
             float drawH = bmpH * scale;
             float dx = left + (cardW - drawW) / 2f;
             float dy;
-            if (title != null && title.equals("GÅRDSPLASSEN")) {
+            if (yardCropOffset) {
                 dy = top + cardH / 2f - 0.40f * drawH;
                 dy = Math.max(top + cardH - drawH, Math.min(top, dy));
             } else {
                 dy = top + (cardH - drawH) / 2f;
             }
-            Rect src = new Rect(0, 0, (int)bmpW, (int)bmpH);
+            Rect src = new Rect(0, 0, (int) bmpW, (int) bmpH);
             android.graphics.RectF dst = new android.graphics.RectF(dx, dy, dx + drawW, dy + drawH);
-            canvas.drawBitmap(bmp, src, dst, new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG));
-            
-            // Scaled banner and overlays
+            Paint bmpPaint = new Paint();
+            if (detailPageVersion == 2) {
+                bmpPaint.setFilterBitmap(false);
+                bmpPaint.setAntiAlias(false);
+            } else {
+                bmpPaint.setFilterBitmap(true);
+                bmpPaint.setAntiAlias(true);
+            }
+            canvas.drawBitmap(bmp, src, dst, bmpPaint);
+
             float S = cardW / 712f;
             float bannerH = Math.max(30f, 40f * S);
             Paint bannerP = new Paint();
             bannerP.setColor(android.graphics.Color.argb(160, 0, 0, 0));
             canvas.drawRect(left, top, right, top + bannerH, bannerP);
-            
+
             Paint bannerText = new Paint();
             bannerText.setAntiAlias(true);
             bannerText.setColor(android.graphics.Color.WHITE);
             bannerText.setTextSize(Math.max(17f, 23f * S));
             bannerText.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
             canvas.drawText(title, left + 22f * S, top + bannerH * 0.65f, bannerText);
-            
+
             Paint tsText = new Paint();
             tsText.setAntiAlias(true);
             tsText.setColor(android.graphics.Color.parseColor("#CCCCCC"));
             tsText.setTextSize(Math.max(17f, 23f * S));
             String displayTs = (tsStr != null && !tsStr.isEmpty()) ? tsStr : "Live";
             canvas.drawText(displayTs, right - 22f * S - tsText.measureText(displayTs), top + bannerH * 0.65f, tsText);
-            
+
             canvas.restore();
-            
-            // Draw border again on top of image
-            android.graphics.Paint stroke = new android.graphics.Paint();
-            stroke.setColor(android.graphics.Color.parseColor("#222633"));
-            stroke.setStyle(android.graphics.Paint.Style.STROKE);
-            stroke.setStrokeWidth(3f);
-            stroke.setAntiAlias(true);
-            canvas.drawRoundRect(left, top, right, bottom, 18f, 18f, stroke);
+            drawWidgetCardBorder(canvas, left, top, right, bottom, cardS);
         } else {
             Paint textPaint = new Paint();
             textPaint.setAntiAlias(true);
