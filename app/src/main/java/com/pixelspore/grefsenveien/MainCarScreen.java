@@ -247,23 +247,25 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 int offsetX = 0;
                 int offsetY = 0;
 
-                // HOME: skalér til å passe begge dimensjoner (fit-both), andre: cover (fyll hele skjermen)
-                float scaleW = (float) drawWidth / displayBitmap.getWidth();
-                float scaleH = (float) drawHeight / displayBitmap.getHeight();
-                float scale;
                 if (currentMode == ViewMode.HOME) {
-                    scale = Math.min(scaleW, scaleH);
+                    Rect destRect = new Rect(0, 0, displayBitmap.getWidth(), displayBitmap.getHeight());
+                    Paint bmpPaint = new Paint();
+                    bmpPaint.setFilterBitmap(false);
+                    bmpPaint.setAntiAlias(false);
+                    canvas.drawBitmap(displayBitmap, null, destRect, bmpPaint);
                 } else {
-                    scale = Math.max(scaleW, scaleH);
+                    float scaleW = (float) drawWidth / displayBitmap.getWidth();
+                    float scaleH = (float) drawHeight / displayBitmap.getHeight();
+                    float scale = Math.max(scaleW, scaleH);
+
+                    int scaledWidth  = Math.round(displayBitmap.getWidth()  * scale);
+                    int scaledHeight = Math.round(displayBitmap.getHeight() * scale);
+                    int left = offsetX + (drawWidth  - scaledWidth)  / 2;
+                    int top  = offsetY + (drawHeight - scaledHeight) / 2;
+
+                    Rect destRect = new Rect(left, top, left + scaledWidth, top + scaledHeight);
+                    canvas.drawBitmap(displayBitmap, null, destRect, new Paint());
                 }
-
-                int scaledWidth  = Math.round(displayBitmap.getWidth()  * scale);
-                int scaledHeight = Math.round(displayBitmap.getHeight() * scale);
-                int left = offsetX + (drawWidth  - scaledWidth)  / 2;
-                int top  = offsetY + (drawHeight - scaledHeight) / 2;
-
-                Rect destRect = new Rect(left, top, left + scaledWidth, top + scaledHeight);
-                canvas.drawBitmap(displayBitmap, null, destRect, new Paint());
 
                 if (displayTimestamp != null && !displayTimestamp.isEmpty()) {
                     if (currentMode == ViewMode.HOME) {
@@ -845,16 +847,25 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             SimpleDateFormat isoFmt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
             isoFmt.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
 
-            List<float[]> tempPoints = new ArrayList<>();
+            List<float[]> todayTempPoints = new ArrayList<>();
+            List<float[]> yesterdayTempPoints = new ArrayList<>();
             float[] rainByDay = new float[7];
             float[] hourlyRain = new float[24];
             List<float[]> soilPoints = new ArrayList<>();
             float[] hourlySolar = new float[24];
+            java.util.Calendar dayCal = java.util.Calendar.getInstance();
+            dayCal.setTimeInMillis(now);
+            dayCal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+            dayCal.set(java.util.Calendar.MINUTE, 0);
+            dayCal.set(java.util.Calendar.SECOND, 0);
+            dayCal.set(java.util.Calendar.MILLISECOND, 0);
+            long todayMidnight = dayCal.getTimeInMillis();
+            long yesterdayMidnight = todayMidnight - 24L * 3600_000;
 
-            // 1. Fetch Temp
+            // 1. Fetch Temp (48h for today + yesterday comparison)
             try {
                 String tempUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
-                        + isoFmt.format(new Date(now - 24L * 3600_000))
+                        + isoFmt.format(new Date(now - 48L * 3600_000))
                         + "?filter_entity_id=sensor.vaerstasjon_temp"
                         + "&end_time=" + isoFmt.format(new Date(now));
                 HttpURLConnection conn = (HttpURLConnection) new URL(tempUrl).openConnection();
@@ -871,23 +882,31 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                     JSONArray outer = new JSONArray(json);
                     if (outer.length() > 0) {
                         JSONArray states = outer.getJSONArray(0);
-                        float lastVal = 0f;
-                        boolean hasVal = false;
+                        float lastTodayVal = 0f;
+                        boolean hasTodayVal = false;
                         for (int i = 0; i < states.length(); i++) {
                             JSONObject obj = states.getJSONObject(i);
                             try {
                                 float temp = Float.parseFloat(obj.getString("state"));
                                 long ts = parseIsoTimestamp(obj.getString("last_changed"));
-                                float hoursAgo = (now - ts) / 3_600_000f;
-                                if (hoursAgo >= 0 && hoursAgo <= 24) {
-                                    tempPoints.add(new float[]{hoursAgo, temp});
-                                    lastVal = temp;
-                                    hasVal = true;
+                                if (ts >= todayMidnight) {
+                                    float hourOfDay = (ts - todayMidnight) / 3_600_000f;
+                                    if (hourOfDay >= 0f && hourOfDay <= 24f) {
+                                        todayTempPoints.add(new float[]{hourOfDay, temp});
+                                        lastTodayVal = temp;
+                                        hasTodayVal = true;
+                                    }
+                                } else if (ts >= yesterdayMidnight) {
+                                    float hourOfDay = (ts - yesterdayMidnight) / 3_600_000f;
+                                    if (hourOfDay >= 0f && hourOfDay <= 24f) {
+                                        yesterdayTempPoints.add(new float[]{hourOfDay, temp});
+                                    }
                                 }
                             } catch (NumberFormatException ignored) {}
                         }
-                        if (hasVal) {
-                            tempPoints.add(new float[]{0f, lastVal});
+                        if (hasTodayVal) {
+                            float currentHour = (now - todayMidnight) / 3_600_000f;
+                            todayTempPoints.add(new float[]{currentHour, lastTodayVal});
                         }
                     }
                 } else { conn.disconnect(); }
@@ -1084,12 +1103,32 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 Log.w("GrefsenveienApp", "Failed to fetch live solar_hourly", e);
             }
 
-            // Always ensure tempPoints is not empty to render dashboard cleanly
             float curTemp = 15f;
-            if (tempPoints.isEmpty()) {
-                tempPoints.add(new float[]{0f, 15f});
+            if (todayTempPoints.isEmpty()) {
+                todayTempPoints.add(new float[]{0f, 15f});
             } else {
-                curTemp = tempPoints.get(tempPoints.size() - 1)[1];
+                todayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
+                curTemp = todayTempPoints.get(todayTempPoints.size() - 1)[1];
+            }
+            if (!yesterdayTempPoints.isEmpty()) {
+                yesterdayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
+            }
+            todayTempPoints = bucketTempPointsHourly(todayTempPoints);
+            yesterdayTempPoints = bucketTempPointsHourly(yesterdayTempPoints);
+            float currentHour = (now - todayMidnight) / 3_600_000f;
+            if (!todayTempPoints.isEmpty()) {
+                float lastVal = todayTempPoints.get(todayTempPoints.size() - 1)[1];
+                if (todayTempPoints.get(todayTempPoints.size() - 1)[0] >= currentHour) {
+                    todayTempPoints.remove(todayTempPoints.size() - 1);
+                }
+                todayTempPoints.add(new float[]{currentHour, lastVal});
+                curTemp = lastVal;
+            }
+            if (!yesterdayTempPoints.isEmpty()) {
+                float[] lastYesterday = yesterdayTempPoints.get(yesterdayTempPoints.size() - 1);
+                if (lastYesterday[0] < 24f) {
+                    yesterdayTempPoints.add(new float[]{24f, lastYesterday[1]});
+                }
             }
 
             // Fetch live room temperatures (guaranteed robust as each is try-catched inside fetchSensorState)
@@ -1120,11 +1159,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
             try {
                 // Bruk faktisk canvas-størrelse for å fylle hele skjermen
-                int chartW = mSurfaceContainer != null
-                        ? mSurfaceContainer.getWidth() : 1440;
-                int chartH = mSurfaceContainer != null
-                        ? mSurfaceContainer.getHeight() : 2080;
-                Bitmap chart = renderTemperatureChart(tempPoints, rainByDay, hourlyRain, soilPoints, chartW, chartH);
+                int chartW = lastCanvasWidth > 0 ? lastCanvasWidth
+                        : (mSurfaceContainer != null ? mSurfaceContainer.getWidth() : 1440);
+                int chartH = lastCanvasHeight > 0 ? lastCanvasHeight
+                        : (mSurfaceContainer != null ? mSurfaceContainer.getHeight() : 2080);
+                Bitmap chart = renderTemperatureChart(todayTempPoints, yesterdayTempPoints, rainByDay, hourlyRain, soilPoints, chartW, chartH);
                 SimpleDateFormat disp = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
                 String ts = "Oppdatert " + disp.format(new Date(now));
                 getCarContext().getMainExecutor().execute(() -> {
@@ -1151,11 +1190,89 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     }
 
-    private Bitmap renderTemperatureChart(List<float[]> points, float[] rainByDay, float[] hourlyRain, List<float[]> soilPoints, int w, int h) {
-        points.sort((a, b) -> Float.compare(b[0], a[0])); // eldst → nyest
+    private List<float[]> bucketTempPointsHourly(List<float[]> raw) {
+        if (raw == null || raw.isEmpty()) return new ArrayList<>();
+        raw.sort((a, b) -> Float.compare(a[0], b[0]));
+        java.util.LinkedHashMap<Integer, Float> hourMap = new java.util.LinkedHashMap<>();
+        for (float[] p : raw) {
+            int hour = Math.min(23, Math.max(0, (int) Math.floor(p[0])));
+            hourMap.put(hour, p[1]);
+        }
+        List<float[]> result = new ArrayList<>();
+        for (java.util.Map.Entry<Integer, Float> entry : hourMap.entrySet()) {
+            result.add(new float[]{entry.getKey(), entry.getValue()});
+        }
+        return result;
+    }
+
+    private void buildSmoothPath(Path path, List<float[]> screenPoints, float tension) {
+        if (screenPoints.isEmpty()) return;
+        path.moveTo(screenPoints.get(0)[0], screenPoints.get(0)[1]);
+        if (screenPoints.size() == 1) return;
+        for (int i = 0; i < screenPoints.size() - 1; i++) {
+            float[] p0 = screenPoints.get(Math.max(0, i - 1));
+            float[] p1 = screenPoints.get(i);
+            float[] p2 = screenPoints.get(i + 1);
+            float[] p3 = screenPoints.get(Math.min(screenPoints.size() - 1, i + 2));
+            float cp1x = p1[0] + (p2[0] - p0[0]) * tension;
+            float cp1y = p1[1] + (p2[1] - p0[1]) * tension;
+            float cp2x = p2[0] - (p3[0] - p1[0]) * tension;
+            float cp2y = p2[1] - (p3[1] - p1[1]) * tension;
+            path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2[0], p2[1]);
+        }
+    }
+
+    private void drawOutdoorTempLine(Canvas canvas, List<float[]> points, float minT, float range,
+            float tGL, float tGT, float tGW, float tGH, int lineColor, float S, float tension, Integer fillColor) {
+        if (points.size() < 2) return;
+        List<float[]> screen = new ArrayList<>();
+        for (float[] p : points) {
+            float x = tGL + tGW * (p[0] / 24f);
+            float y = tGT + tGH * (1f - (p[1] - minT) / range);
+            screen.add(new float[]{x, y});
+        }
+        Path linePath = new Path();
+        buildSmoothPath(linePath, screen, tension);
+
+        if (fillColor != null) {
+            Path fillPath = new Path(linePath);
+            float[] first = screen.get(0);
+            float[] last = screen.get(screen.size() - 1);
+            fillPath.lineTo(last[0], tGT + tGH);
+            fillPath.lineTo(first[0], tGT + tGH);
+            fillPath.close();
+            Paint fillP = new Paint();
+            fillP.setColor(fillColor);
+            fillP.setStyle(Paint.Style.FILL);
+            fillP.setAntiAlias(true);
+            canvas.drawPath(fillPath, fillP);
+        }
+
+        Paint lineP = new Paint();
+        lineP.setColor(lineColor);
+        lineP.setStrokeWidth(3f * S);
+        lineP.setStyle(Paint.Style.STROKE);
+        lineP.setAntiAlias(true);
+        lineP.setStrokeJoin(Paint.Join.ROUND);
+        lineP.setStrokeCap(Paint.Cap.ROUND);
+        canvas.drawPath(linePath, lineP);
+    }
+
+    private Bitmap renderTemperatureChart(List<float[]> todayTempPoints, List<float[]> yesterdayTempPoints, float[] rainByDay, float[] hourlyRain, List<float[]> soilPoints, int w, int h) {
+        todayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
+        yesterdayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
 
         float minT = Float.MAX_VALUE, maxT = -Float.MAX_VALUE;
-        for (float[] p : points) { minT = Math.min(minT, p[1]); maxT = Math.max(maxT, p[1]); }
+        float todayMinT = Float.MAX_VALUE, todayMaxT = -Float.MAX_VALUE;
+        for (float[] p : todayTempPoints) {
+            minT = Math.min(minT, p[1]);
+            maxT = Math.max(maxT, p[1]);
+            todayMinT = Math.min(todayMinT, p[1]);
+            todayMaxT = Math.max(todayMaxT, p[1]);
+        }
+        for (float[] p : yesterdayTempPoints) { minT = Math.min(minT, p[1]); maxT = Math.max(maxT, p[1]); }
+        if (minT == Float.MAX_VALUE) { minT = 14f; maxT = 16f; }
+        if (todayMinT == Float.MAX_VALUE) { todayMinT = minT; todayMaxT = maxT; }
         float range = maxT - minT;
         if (range < 2f) { minT -= 1; maxT += 1; range = 2f; }
 
@@ -1208,7 +1325,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float col1L = 0f, col1R = colW;
         float col2L = colW + gap, col2R = 2f * colW + gap;
         float col3L = 2f * (colW + gap), col3R = (float) w;
-        float curTemp = points.get(points.size() - 1)[1];
+        float curTemp = todayTempPoints.isEmpty() ? 15f : todayTempPoints.get(todayTempPoints.size() - 1)[1];
 
         // === ROW LAYOUT ===
         float topPad = h * 0.105f;
@@ -1232,26 +1349,31 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float tGH = chartRowH - gTopOff - gBotOff;
 
         // === ROW 1: Utetemperatur | Aktuelt temp | Regn 7 dager ===
-        drawWidgetCard(c, col1L, r1Top, col1R, r1Bot);
+        drawWidgetCard(c, col1L, r1Top, col1R, r1Bot, S);
         c.drawText("UTE 24t", col1L + wPad, r1Top + hdrOff, lblHdr);
-        String tHdr = String.format(Locale.getDefault(), "%.1f\u00b0\u2013%.1f\u00b0", minT, maxT);
+        String tHdr = String.format(Locale.getDefault(), "%.1f\u00b0\u2013%.1f\u00b0", todayMinT, todayMaxT);
         c.drawText(tHdr, col1R - wPad - lblVal.measureText(tHdr), r1Top + hdrOff, lblVal);
         float tGL = col1L + gLeft, tGT = r1Top + gTopOff;
         for (int i = 0; i <= 4; i++) { float frac = i/4f, y = tGT + tGH*(1-frac); c.drawLine(tGL, y, tGL+tGW, y, gridP); c.drawText(String.format(Locale.getDefault(), "%.0f\u00b0", minT+range*frac), tGL-4f*S, y+6f*S, lblPy); }
-        for (int hr = 0; hr <= 24; hr += 6) { float x = tGL+tGW*(1f-hr/24f); c.drawLine(x, tGT, x, tGT+tGH, gridP);
-            String sl = new SimpleDateFormat("HH", Locale.getDefault()).format(new Date(System.currentTimeMillis()-hr*3_600_000L));
-            c.drawText(sl, x-lblP.measureText(sl)/2f, tGT+tGH+xAxisYOffset, lblP); }
-        Paint fillP = new Paint(); fillP.setColor(android.graphics.Color.parseColor("#1A3B82F6")); fillP.setStyle(Paint.Style.FILL); fillP.setAntiAlias(true);
-        Path fillPath = new Path(); fillPath.moveTo(tGL+tGW*(1f-points.get(0)[0]/24f), tGT+tGH);
-        for (float[] p : points) fillPath.lineTo(tGL+tGW*(1f-p[0]/24f), tGT+tGH*(1f-(p[1]-minT)/range));
-        fillPath.lineTo(tGL+tGW*(1f-points.get(points.size()-1)[0]/24f), tGT+tGH); fillPath.close(); c.drawPath(fillPath, fillP);
-        Paint lineP = new Paint(); lineP.setColor(android.graphics.Color.parseColor("#3B82F6")); lineP.setStrokeWidth(3f*S); lineP.setStyle(Paint.Style.STROKE); lineP.setAntiAlias(true); lineP.setStrokeJoin(Paint.Join.ROUND); lineP.setStrokeCap(Paint.Cap.ROUND);
-        Path linePath = new Path(); boolean first = true;
-        for (float[] p : points) { float x = tGL+tGW*(1f-p[0]/24f), y = tGT+tGH*(1f-(p[1]-minT)/range); if (first) { linePath.moveTo(x, y); first = false; } else linePath.lineTo(x, y); }
-        c.drawPath(linePath, lineP);
+        for (int hr = 0; hr <= 24; hr += 6) {
+            float x = tGL + tGW * (hr / 24f);
+            c.drawLine(x, tGT, x, tGT+tGH, gridP);
+            String sl = String.format(Locale.getDefault(), "%02d", hr);
+            c.drawText(sl, x-lblP.measureText(sl)/2f, tGT+tGH+xAxisYOffset, lblP);
+        }
+        int colorToday = android.graphics.Color.parseColor("#27C93F");
+        int colorTodayFill = android.graphics.Color.parseColor("#1A27C93F");
+        int colorYesterday = android.graphics.Color.argb(90, 255, 95, 86);
+        float lineTension = 0.1f;
+        if (!yesterdayTempPoints.isEmpty()) {
+            drawOutdoorTempLine(c, yesterdayTempPoints, minT, range, tGL, tGT, tGW, tGH, colorYesterday, S, lineTension, null);
+        }
+        if (!todayTempPoints.isEmpty()) {
+            drawOutdoorTempLine(c, todayTempPoints, minT, range, tGL, tGT, tGW, tGH, colorToday, S, lineTension, colorTodayFill);
+        }
 
         // --- Aktuelt Utetemperatur ---
-        drawWidgetCard(c, col2L, r1Top, col2R, r1Bot);
+        drawWidgetCard(c, col2L, r1Top, col2R, r1Bot, S);
         c.drawText("N\u00c5", col2L + wPad, r1Top + hdrOff, lblHdr);
         Paint naP = new Paint(); naP.setAntiAlias(true); naP.setColor(android.graphics.Color.WHITE); naP.setTextSize(44f*S); naP.setTypeface(Typeface.DEFAULT_BOLD);
         String tempStr = String.format(Locale.getDefault(), "%.1f\u00b0C", curTemp);
@@ -1293,7 +1415,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         c.drawText(humStr, humGroupX + iconSize + iconTextGap, textY, naP);
 
         // --- Regn 7 dager ---
-        drawWidgetCard(c, col3L, r1Top, col3R, r1Bot);
+        drawWidgetCard(c, col3L, r1Top, col3R, r1Bot, S);
         c.drawText("REGN 7d", col3L + wPad, r1Top + hdrOff, lblHdr);
         float totalRain = 0; for (float v : rainByDay) totalRain += v;
         c.drawText(String.format(Locale.getDefault(), "%.1f mm", totalRain), col3R-wPad-lblVal.measureText(String.format(Locale.getDefault(), "%.1f mm", totalRain)), r1Top+hdrOff, lblVal);
@@ -1322,7 +1444,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
         // === ROW 2: Regnstyrke | Solstraling | Jordfuktighet ===
         // --- Regnstyrke ---
-        drawWidgetCard(c, col1L, r2Top, col1R, r2Bot);
+        drawWidgetCard(c, col1L, r2Top, col1R, r2Bot, S);
         c.drawText("REGNSTYRKE", col1L+wPad, r2Top+hdrOff, lblHdr);
         float maxHR = 0.0f; for (float r : hourlyRain) maxHR = Math.max(maxHR, r);
         c.drawText(String.format(Locale.getDefault(), "%.1f mm/t", maxHR), col1R-wPad-lblVal.measureText(String.format(Locale.getDefault(), "%.1f mm/t", maxHR)), r2Top+hdrOff, lblVal);
@@ -1339,7 +1461,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             c.drawText(sl, x-lblP.measureText(sl)/2f, rrGT+rrGH+xAxisYOffset, lblP); }
 
         // --- Solstraling ---
-        drawWidgetCard(c, col2L, r2Top, col2R, r2Bot);
+        drawWidgetCard(c, col2L, r2Top, col2R, r2Bot, S);
         c.drawText("SOL", col2L+wPad, r2Top+hdrOff, lblHdr);
         float sTotal = 0f; for (float v : valSolar24h) sTotal += v;
         String solValStr = String.format(Locale.getDefault(), "I dag %.2f kWh/m\u00b2", sTotal);
@@ -1356,7 +1478,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             c.drawText(sl, x-lblP.measureText(sl)/2f, solGT+solGH+xAxisYOffset, lblP); }
 
         // --- Jordfuktighet ---
-        drawWidgetCard(c, col3L, r2Top, col3R, r2Bot);
+        drawWidgetCard(c, col3L, r2Top, col3R, r2Bot, S);
         c.drawText("JORD", col3L+wPad, r2Top+hdrOff, lblHdr);
         float rangeS = maxS - minS; if (rangeS < 1f) rangeS = 1f;
         String soilStr = hasSoilData ? String.format(Locale.getDefault(), "%.0f%%", curSoil) : "?";
@@ -1618,19 +1740,31 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     }
 
-    private void drawWidgetCard(android.graphics.Canvas canvas, float left, float top, float right, float bottom) {
+    private void drawWidgetCard(android.graphics.Canvas canvas, float left, float top, float right, float bottom, float S) {
+        float cornerRadius = 18f;
         android.graphics.Paint bg = new android.graphics.Paint();
         bg.setColor(android.graphics.Color.parseColor("#151821"));
         bg.setStyle(android.graphics.Paint.Style.FILL);
         bg.setAntiAlias(true);
-        canvas.drawRoundRect(left, top, right, bottom, 18f, 18f, bg);
-        
+        canvas.drawRoundRect(left, top, right, bottom, cornerRadius, cornerRadius, bg);
+
         android.graphics.Paint stroke = new android.graphics.Paint();
         stroke.setColor(android.graphics.Color.parseColor("#222633"));
         stroke.setStyle(android.graphics.Paint.Style.STROKE);
-        stroke.setStrokeWidth(3f);
-        stroke.setAntiAlias(true);
-        canvas.drawRoundRect(left, top, right, bottom, 18f, 18f, stroke);
+        if (detailPageVersion == 2) {
+            float strokeWidth = Math.max(1f, 1.5f * S);
+            stroke.setStrokeWidth(strokeWidth);
+            stroke.setAntiAlias(false);
+            float inset = strokeWidth / 2f;
+            canvas.drawRoundRect(
+                    left + inset, top + inset, right - inset, bottom - inset,
+                    Math.max(0f, cornerRadius - inset), Math.max(0f, cornerRadius - inset),
+                    stroke);
+        } else {
+            stroke.setStrokeWidth(3f);
+            stroke.setAntiAlias(true);
+            canvas.drawRoundRect(left, top, right, bottom, cornerRadius, cornerRadius, stroke);
+        }
     }
 
     private void drawThermometerIcon(android.graphics.Canvas canvas, float x, float y, float size, float S, android.graphics.Paint paint) {
@@ -1672,7 +1806,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     }
 
     private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr, float left, float top, float right, float bottom) {
-        drawWidgetCard(canvas, left, top, right, bottom);
+        float cardS = (right - left) / 480f;
+        drawWidgetCard(canvas, left, top, right, bottom, cardS);
         if (bmp != null) {
             android.graphics.Path clipPath = new android.graphics.Path();
             clipPath.addRoundRect(new android.graphics.RectF(left, top, right, bottom), 18f, 18f, android.graphics.Path.Direction.CW);
