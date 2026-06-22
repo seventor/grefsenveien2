@@ -1,6 +1,7 @@
 package com.pixelspore.grefsenveien;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import android.content.SharedPreferences;
 import android.content.Context;
 import androidx.car.app.CarContext;
@@ -97,6 +98,23 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private float valSolarHourly = 0f;
     private float[] valSolar24h = new float[24];
     private float valHumidity = 45f;
+
+    private static final class LightningEvent {
+        final long timeMs;
+        final float distanceKm;
+
+        LightningEvent(long timeMs, float distanceKm) {
+            this.timeMs = timeMs;
+            this.distanceKm = distanceKm;
+        }
+    }
+
+    private List<LightningEvent> lightningEvents7d = new ArrayList<>();
+    private float lastLightningDistanceKm = -1f;
+    private float nearestLightningDistanceKm = -1f;
+    private int lightningCount7d = 0;
+    private long lightningWindowStartMs = 0L;
+    private long lightningWindowEndMs = 0L;
 
     private final android.os.Handler mUpdateHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable mImageUpdater = new Runnable() {
@@ -924,8 +942,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                     String resultMsg;
                     if (responseCode == 200) {
                         resultMsg = "Vellykket";
+                        ActionFeedbackSound.playSuccess(getCarContext());
                     } else {
                         resultMsg = "Feilkode " + responseCode + " (" + targetName + ")";
+                        ActionFeedbackSound.playError(getCarContext());
                     }
                     CarToast.makeText(getCarContext(), resultMsg, CarToast.LENGTH_LONG).show();
                 });
@@ -933,6 +953,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 e.printStackTrace();
                 getCarContext().getMainExecutor().execute(() -> {
                     String errorMsg = "Nettverksfeil for " + targetName;
+                    ActionFeedbackSound.playError(getCarContext());
                     CarToast.makeText(getCarContext(), errorMsg, CarToast.LENGTH_LONG).show();
                 });
             }
@@ -943,6 +964,67 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     // Home Assistant – temperaturhistorikk
     // -------------------------------------------------------------------------
 
+    private static final int HA_HISTORY_CONNECT_TIMEOUT_MS = 15_000;
+    private static final int HA_HISTORY_READ_TIMEOUT_MS = 15_000;
+    private static final int HA_HISTORY_MAX_ATTEMPTS = 3;
+    private static final int HA_HISTORY_RETRY_DELAY_MS = 1_500;
+
+    @Nullable
+    private String fetchHaHistoryJsonWithRetry(@NonNull String label, @NonNull String url) {
+        Exception lastError = null;
+        for (int attempt = 1; attempt <= HA_HISTORY_MAX_ATTEMPTS; attempt++) {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Authorization", "Bearer " + BuildConfig.HA_TOKEN);
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setConnectTimeout(HA_HISTORY_CONNECT_TIMEOUT_MS);
+                conn.setReadTimeout(HA_HISTORY_READ_TIMEOUT_MS);
+                conn.connect();
+                int responseCode = conn.getResponseCode();
+                if (responseCode == 200) {
+                    String json = new String(conn.getInputStream().readAllBytes(),
+                            java.nio.charset.StandardCharsets.UTF_8);
+                    if (attempt > 1) {
+                        Log.i("GrefsenveienApp", label + " succeeded on attempt " + attempt);
+                    }
+                    return json;
+                }
+                lastError = new IOException("HTTP " + responseCode);
+                Log.w("GrefsenveienApp", label + " failed: non-200 HTTP " + responseCode
+                        + " (attempt " + attempt + "/" + HA_HISTORY_MAX_ATTEMPTS + ")");
+            } catch (java.net.SocketTimeoutException e) {
+                lastError = e;
+                Log.w("GrefsenveienApp", label + " failed: timeout after "
+                        + HA_HISTORY_CONNECT_TIMEOUT_MS + "ms connect / "
+                        + HA_HISTORY_READ_TIMEOUT_MS + "ms read"
+                        + " (attempt " + attempt + "/" + HA_HISTORY_MAX_ATTEMPTS + ")");
+            } catch (Exception e) {
+                lastError = e;
+                Log.w("GrefsenveienApp", label + " failed: " + e.getClass().getSimpleName()
+                        + " - " + e.getMessage()
+                        + " (attempt " + attempt + "/" + HA_HISTORY_MAX_ATTEMPTS + ")");
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+            if (attempt < HA_HISTORY_MAX_ATTEMPTS) {
+                try {
+                    Thread.sleep(HA_HISTORY_RETRY_DELAY_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        if (lastError != null) {
+            Log.e("GrefsenveienApp", label + " gave up after " + HA_HISTORY_MAX_ATTEMPTS + " attempts", lastError);
+        }
+        return null;
+    }
+
     private void fetchHomeAssistantData() {
         new Thread(() -> {
             long now = System.currentTimeMillis();
@@ -951,7 +1033,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
             List<float[]> todayTempPoints = new ArrayList<>();
             List<float[]> yesterdayTempPoints = new ArrayList<>();
-            float[] rainByDay = new float[14];
+            float[] rainByWeek = new float[12];
+            float todayRainMm = 0f;
             float[] hourlyRain = new float[24];
             List<float[]> soilPoints = new ArrayList<>();
             float[] hourlySolar = new float[24];
@@ -970,17 +1053,9 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         + isoFmt.format(new Date(now - 48L * 3600_000))
                         + "?filter_entity_id=sensor.vaerstasjon_temp"
                         + "&end_time=" + isoFmt.format(new Date(now));
-                HttpURLConnection conn = (HttpURLConnection) new URL(tempUrl).openConnection();
-                conn.setRequestMethod("GET");
-                conn.setRequestProperty("Authorization", "Bearer " + BuildConfig.HA_TOKEN);
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setConnectTimeout(6000);
-                conn.setReadTimeout(6000);
-                conn.connect();
-                if (conn.getResponseCode() == 200) {
-                    String json = new String(conn.getInputStream().readAllBytes(),
-                            java.nio.charset.StandardCharsets.UTF_8);
-                    conn.disconnect();
+                String json = fetchHaHistoryJsonWithRetry(
+                        "Temperature history (sensor.vaerstasjon_temp)", tempUrl);
+                if (json != null) {
                     JSONArray outer = new JSONArray(json);
                     if (outer.length() > 0) {
                         JSONArray states = outer.getJSONArray(0);
@@ -1010,29 +1085,24 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                             float currentHour = (now - todayMidnight) / 3_600_000f;
                             todayTempPoints.add(new float[]{currentHour, lastTodayVal});
                         }
+                    } else {
+                        Log.w("GrefsenveienApp",
+                                "Temperature history (sensor.vaerstasjon_temp): empty response array");
                     }
-                } else { conn.disconnect(); }
+                }
             } catch (Exception e) {
-                Log.w("GrefsenveienApp", "Failed to fetch vaerstasjon_temp", e);
+                Log.w("GrefsenveienApp", "Failed to parse temperature history", e);
             }
 
-            // 2. Fetch Rain 14d
+            // 2. Fetch Rain 12 weeks (daily values aggregated per Monday week)
             try {
                 String rainUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
-                        + isoFmt.format(new Date(now - 14L * 24 * 3600_000))
+                        + isoFmt.format(new Date(now - 91L * 24 * 3600_000))
                         + "?filter_entity_id=sensor.vaerstasjon_daily_rain"
                         + "&end_time=" + isoFmt.format(new Date(now));
-                HttpURLConnection conn = (HttpURLConnection) new URL(rainUrl).openConnection();
-                conn.setRequestMethod("GET");
-                conn.setRequestProperty("Authorization", "Bearer " + BuildConfig.HA_TOKEN);
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setConnectTimeout(6000);
-                conn.setReadTimeout(6000);
-                conn.connect();
-                if (conn.getResponseCode() == 200) {
-                    String json = new String(conn.getInputStream().readAllBytes(),
-                            java.nio.charset.StandardCharsets.UTF_8);
-                    conn.disconnect();
+                String json = fetchHaHistoryJsonWithRetry(
+                        "Rain history (sensor.vaerstasjon_daily_rain)", rainUrl);
+                if (json != null) {
                     JSONArray outer = new JSONArray(json);
                     if (outer.length() > 0) {
                         JSONArray states = outer.getJSONArray(0);
@@ -1049,18 +1119,90 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                                 if (cur == null || rain > cur) maxPerDay.put(dayKey, rain);
                             } catch (NumberFormatException ignored) {}
                         }
-                        SimpleDateFormat dayFmt2 = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
-                        Calendar cal = Calendar.getInstance();
-                        for (int i = 0; i < 14; i++) {
-                            Float val = maxPerDay.get(dayFmt2.format(cal.getTime()));
-                            rainByDay[i] = val != null ? val : 0f;
-                            cal.add(Calendar.DAY_OF_MONTH, -1);
+                        TreeMap<Long, Float> rainPerWeek = new TreeMap<>();
+                        for (java.util.Map.Entry<String, Float> entry : maxPerDay.entrySet()) {
+                            try {
+                                Date day = dayFmt.parse(entry.getKey());
+                                if (day == null) continue;
+                                long weekMonday = getWeekMondayMillis(day.getTime());
+                                float prev = rainPerWeek.containsKey(weekMonday) ? rainPerWeek.get(weekMonday) : 0f;
+                                rainPerWeek.put(weekMonday, prev + entry.getValue());
+                            } catch (Exception ignored) {}
+                        }
+                        Float todayVal = maxPerDay.get(dayFmt.format(new Date(now)));
+                        if (todayVal != null) {
+                            todayRainMm = todayVal;
+                        }
+                        Calendar weekCal = Calendar.getInstance();
+                        weekCal.setTimeInMillis(getWeekMondayMillis(now));
+                        for (int i = 0; i < 12; i++) {
+                            Float val = rainPerWeek.get(weekCal.getTimeInMillis());
+                            rainByWeek[i] = val != null ? val : 0f;
+                            weekCal.add(Calendar.WEEK_OF_YEAR, -1);
+                        }
+                    } else {
+                        Log.w("GrefsenveienApp",
+                                "Rain history (sensor.vaerstasjon_daily_rain): empty response array");
+                    }
+                }
+            } catch (Exception e) {
+                Log.w("GrefsenveienApp", "Failed to parse rain history", e);
+            }
+
+            // 2b. Fetch Lightning 7d
+            List<LightningEvent> lightningEvents = new ArrayList<>();
+            long sevenDaysAgo = now - 7L * 24 * 3600_000;
+            try {
+                String lightningUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
+                        + isoFmt.format(new Date(sevenDaysAgo))
+                        + "?filter_entity_id=sensor.vaerstasjon_lightning_strike_distance"
+                        + "&end_time=" + isoFmt.format(new Date(now));
+                String lightningJson = fetchHaHistoryJsonWithRetry(
+                        "Lightning history (sensor.vaerstasjon_lightning_strike_distance)", lightningUrl);
+                if (lightningJson != null) {
+                    JSONArray outer = new JSONArray(lightningJson);
+                    if (outer.length() > 0) {
+                        JSONArray states = outer.getJSONArray(0);
+                        float prevDist = -1f;
+                        long prevTs = 0L;
+                        for (int i = 0; i < states.length(); i++) {
+                            JSONObject obj = states.getJSONObject(i);
+                            try {
+                                String stateStr = obj.getString("state");
+                                if ("unavailable".equals(stateStr) || "unknown".equals(stateStr)) continue;
+                                float dist = Float.parseFloat(stateStr);
+                                if (dist <= 0f) continue;
+                                long ts = parseIsoTimestamp(obj.getString("last_changed"));
+                                if (ts < sevenDaysAgo) continue;
+                                if (prevDist < 0f || Math.abs(dist - prevDist) > 0.01f || ts - prevTs > 120_000L) {
+                                    lightningEvents.add(new LightningEvent(ts, dist));
+                                }
+                                prevDist = dist;
+                                prevTs = ts;
+                            } catch (NumberFormatException ignored) {}
                         }
                     }
-                } else { conn.disconnect(); }
+                }
             } catch (Exception e) {
-                Log.w("GrefsenveienApp", "Failed to fetch daily_rain", e);
+                Log.w("GrefsenveienApp", "Failed to parse lightning history", e);
             }
+            lightningEvents.sort((a, b) -> Long.compare(a.timeMs, b.timeMs));
+            float lastLightningDist = fetchSensorState("sensor.vaerstasjon_lightning_strike_distance", -1f);
+            if (lastLightningDist <= 0f && !lightningEvents.isEmpty()) {
+                lastLightningDist = lightningEvents.get(lightningEvents.size() - 1).distanceKm;
+            }
+            float nearestLightningDist = -1f;
+            for (LightningEvent event : lightningEvents) {
+                if (nearestLightningDist < 0f || event.distanceKm < nearestLightningDist) {
+                    nearestLightningDist = event.distanceKm;
+                }
+            }
+            lightningEvents7d = lightningEvents;
+            lastLightningDistanceKm = lastLightningDist;
+            nearestLightningDistanceKm = nearestLightningDist;
+            lightningCount7d = lightningEvents.size();
+            lightningWindowStartMs = sevenDaysAgo;
+            lightningWindowEndMs = now;
 
             // 3. Fetch Rain Rate per Hour
             try {
@@ -1265,7 +1407,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         : (mSurfaceContainer != null ? mSurfaceContainer.getWidth() : 1440);
                 int chartH = lastCanvasHeight > 0 ? lastCanvasHeight
                         : (mSurfaceContainer != null ? mSurfaceContainer.getHeight() : 2080);
-                Bitmap chart = renderTemperatureChart(todayTempPoints, yesterdayTempPoints, rainByDay, hourlyRain, soilPoints, chartW, chartH);
+                Bitmap chart = renderTemperatureChart(todayTempPoints, yesterdayTempPoints, rainByWeek, todayRainMm, hourlyRain, soilPoints, chartW, chartH);
                 SimpleDateFormat disp = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
                 String ts = "Oppdatert " + disp.format(new Date(now));
                 getCarContext().getMainExecutor().execute(() -> {
@@ -1290,6 +1432,198 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         } catch (Exception e) {
             return System.currentTimeMillis();
         }
+    }
+
+    private long getWeekMondayMillis(long timeMs) {
+        Calendar cal = Calendar.getInstance();
+        cal.setFirstDayOfWeek(Calendar.MONDAY);
+        cal.setTimeInMillis(timeMs);
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        int dayOfWeek = cal.get(Calendar.DAY_OF_WEEK);
+        int daysSinceMonday = (dayOfWeek + 5) % 7;
+        cal.add(Calendar.DAY_OF_MONTH, -daysSinceMonday);
+        return cal.getTimeInMillis();
+    }
+
+    private String formatRainWeekLabel(Calendar cal) {
+        int day = cal.get(Calendar.DAY_OF_MONTH);
+        int month = cal.get(Calendar.MONTH) + 1;
+        return day + "." + month;
+    }
+
+    private float[] chooseRainYAxis(float maxRain) {
+        float[] steps = {2f, 5f, 10f, 20f};
+        for (float step : steps) {
+            float axisMax = (float) Math.ceil(maxRain / step) * step;
+            if (axisMax < step) axisMax = step;
+            int lineCount = (int) (axisMax / step);
+            if (lineCount >= 2 && lineCount <= 5) {
+                return new float[]{axisMax, step};
+            }
+        }
+        float step = 10f;
+        float axisMax = Math.max(step, (float) Math.ceil(maxRain / step) * step);
+        return new float[]{axisMax, step};
+    }
+
+    private String formatRainMm(float mm) {
+        if (Math.abs(mm - Math.round(mm)) < 0.05f) {
+            return String.format(Locale.getDefault(), "%.0fmm", mm);
+        }
+        return String.format(Locale.getDefault(), "%.1f", mm).replace('.', ',') + "mm";
+    }
+
+    private String formatLightningKm(float km) {
+        if (km < 0f) return "?";
+        return String.format(Locale.getDefault(), "%.0fkm", km);
+    }
+
+    private float[] chooseLightningYAxis(float maxKm) {
+        float safeMax = Math.max(1f, maxKm);
+        float[] steps = {5f, 10f, 20f, 30f, 50f};
+        for (float step : steps) {
+            float axisMax = (float) Math.ceil(safeMax / step) * step;
+            if (axisMax < step) axisMax = step;
+            int lineCount = (int) (axisMax / step);
+            if (lineCount >= 2 && lineCount <= 5) {
+                return new float[]{axisMax, step};
+            }
+        }
+        float step = 10f;
+        float axisMax = Math.max(step, (float) Math.ceil(safeMax / step) * step);
+        return new float[]{axisMax, step};
+    }
+
+    private int lightningStrikeColor(float distanceKm, float axisMaxKm) {
+        float proximity = 1f - Math.min(1f, distanceKm / Math.max(1f, axisMaxKm));
+        int far = android.graphics.Color.parseColor("#FFD966");
+        int near = android.graphics.Color.parseColor("#FF3B30");
+        return interpolateColor(far, near, proximity);
+    }
+
+    private boolean isSameDayMs(long timeA, long timeB) {
+        Calendar calA = Calendar.getInstance();
+        calA.setTimeInMillis(timeA);
+        Calendar calB = Calendar.getInstance();
+        calB.setTimeInMillis(timeB);
+        return calA.get(Calendar.YEAR) == calB.get(Calendar.YEAR)
+                && calA.get(Calendar.DAY_OF_YEAR) == calB.get(Calendar.DAY_OF_YEAR);
+    }
+
+    private List<Long> getMidnightBoundaries(long windowStart, long windowEnd) {
+        List<Long> midnights = new ArrayList<>();
+        Calendar cal = Calendar.getInstance();
+        cal.setTimeInMillis(windowStart);
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        if (cal.getTimeInMillis() < windowStart) {
+            cal.add(Calendar.DAY_OF_MONTH, 1);
+        }
+        while (cal.getTimeInMillis() < windowEnd) {
+            midnights.add(cal.getTimeInMillis());
+            cal.add(Calendar.DAY_OF_MONTH, 1);
+        }
+        return midnights;
+    }
+
+    private String formatLightningDayLabel(long segmentStartMs, long windowEndMs) {
+        if (isSameDayMs(segmentStartMs, windowEndMs)) {
+            return "Idag";
+        }
+        Calendar labelCal = Calendar.getInstance();
+        labelCal.setTimeInMillis(segmentStartMs);
+        return formatRainWeekLabel(labelCal);
+    }
+
+    private void drawLightningWidget(Canvas c, float left, float right, float top, float bottom,
+            float S, float wPad, float hdrOff, float gLeft, float gTopOff, float tGW, float tGH,
+            float xAxisYOffset, Paint gridP, Paint lblHdr, Paint lblValNormal, Paint lblP,
+            Paint lblPy, float axisTxt, float baseTxt) {
+        c.drawText("LYN 7D", left + wPad, top + hdrOff, lblHdr);
+
+        String headerStr = "Siste: " + formatLightningKm(lastLightningDistanceKm)
+                + ", N\u00e6rmeste: " + formatLightningKm(nearestLightningDistanceKm);
+        c.drawText(headerStr, right - wPad - lblValNormal.measureText(headerStr), top + hdrOff, lblValNormal);
+
+        float countW = Math.max(56f * S, tGW * 0.22f);
+        float plotGL = left + gLeft;
+        float plotGT = top + gTopOff;
+        float plotGW = tGW - countW - 8f * S;
+        float plotGH = tGH;
+        float plotBase = plotGT + plotGH;
+
+        float maxDist = 1f;
+        for (LightningEvent event : lightningEvents7d) {
+            maxDist = Math.max(maxDist, event.distanceKm);
+        }
+        float[] yAxis = chooseLightningYAxis(maxDist);
+        float axisMaxKm = yAxis[0];
+        float axisStepKm = yAxis[1];
+
+        Paint yLblP = new Paint(lblPy);
+        yLblP.setTextAlign(Paint.Align.LEFT);
+        for (float km = 0f; km <= axisMaxKm + 0.01f; km += axisStepKm) {
+            float y = plotBase - plotGH * (km / axisMaxKm);
+            c.drawLine(plotGL, y, plotGL + plotGW, y, gridP);
+            if (km > 0.01f) {
+                c.drawText(String.format(Locale.getDefault(), "%.0f", km), left + wPad, y + 6f * S, yLblP);
+            }
+        }
+        c.drawLine(plotGL, plotBase, plotGL + plotGW, plotBase, gridP);
+
+        long windowStart = lightningWindowStartMs > 0 ? lightningWindowStartMs : System.currentTimeMillis() - 7L * 24 * 3600_000;
+        long windowEnd = lightningWindowEndMs > 0 ? lightningWindowEndMs : System.currentTimeMillis();
+        long windowSpan = Math.max(1L, windowEnd - windowStart);
+
+        List<Long> midnightBoundaries = getMidnightBoundaries(windowStart, windowEnd);
+        for (long midnightMs : midnightBoundaries) {
+            float x = plotGL + plotGW * ((midnightMs - windowStart) / (float) windowSpan);
+            c.drawLine(x, plotGT, x, plotBase, gridP);
+        }
+
+        List<Long> segmentBounds = new ArrayList<>();
+        segmentBounds.add(windowStart);
+        segmentBounds.addAll(midnightBoundaries);
+        segmentBounds.add(windowEnd);
+
+        Paint weekLblP = new Paint(lblP);
+        weekLblP.setTextSize(Math.max(11f, axisTxt * 0.82f));
+        weekLblP.setTextAlign(Paint.Align.CENTER);
+        for (int i = 0; i < segmentBounds.size() - 1; i++) {
+            long segStart = segmentBounds.get(i);
+            long segEnd = segmentBounds.get(i + 1);
+            float centerX = plotGL + plotGW * (float) ((segStart + segEnd) / 2.0 - windowStart) / windowSpan;
+            String label = formatLightningDayLabel(segStart, windowEnd);
+            c.drawText(label, centerX, plotBase + xAxisYOffset, weekLblP);
+        }
+
+        float dotR = Math.max(4f, 5.5f * S);
+        Paint dotP = new Paint();
+        dotP.setAntiAlias(true);
+        dotP.setStyle(Paint.Style.FILL);
+        for (LightningEvent event : lightningEvents7d) {
+            float xFrac = (event.timeMs - windowStart) / (float) windowSpan;
+            float x = plotGL + plotGW * xFrac;
+            float y = plotBase - plotGH * (event.distanceKm / axisMaxKm);
+            dotP.setColor(lightningStrikeColor(event.distanceKm, axisMaxKm));
+            c.drawCircle(x, y, dotR, dotP);
+        }
+
+        float countLeft = plotGL + plotGW + 12f * S;
+        float countCenterX = countLeft + countW / 2f;
+        Paint countP = new Paint(lblValNormal);
+        countP.setTextAlign(Paint.Align.CENTER);
+        String countStr = String.format(Locale.getDefault(), "%d", lightningCount7d);
+        Paint countLblP = new Paint(lblP);
+        countLblP.setTextAlign(Paint.Align.CENTER);
+        float countY = top + gTopOff + plotGH * 0.42f;
+        c.drawText(countStr, countCenterX, countY, countP);
+        c.drawText("lyn", countCenterX, countY + Math.max(18f, 24f * S), countLblP);
     }
 
     private List<float[]> bucketTempPointsHourly(List<float[]> raw) {
@@ -1360,7 +1694,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.drawPath(linePath, lineP);
     }
 
-    private Bitmap renderTemperatureChart(List<float[]> todayTempPoints, List<float[]> yesterdayTempPoints, float[] rainByDay, float[] hourlyRain, List<float[]> soilPoints, int w, int h) {
+    private Bitmap renderTemperatureChart(List<float[]> todayTempPoints, List<float[]> yesterdayTempPoints, float[] rainByWeek, float todayRainMm, float[] hourlyRain, List<float[]> soilPoints, int w, int h) {
         todayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
         yesterdayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
 
@@ -1451,7 +1785,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float tGW = colW - gLeft - wPad;
         float tGH = chartRowH - gTopOff - gBotOff;
 
-        // === ROW 1: Utetemperatur | Regn 14d | Aktuelt temp ===
+        // === ROW 1: Utetemperatur | Regn 12 uker | Aktuelt temp ===
 
         // --- Utetemperatur ---
         drawWidgetCard(c, col1L, r1Top, col1R, r1Bot, S);
@@ -1482,28 +1816,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             drawOutdoorTempLine(c, todayTempPoints, minT, range, tGL, tGT, tGW, tGH, colorToday, S, lineTension, colorTodayFill);
         }
 
-        // --- Regn 8 dager ---
+        // --- Regn 12 uker ---
         drawWidgetCard(c, col2L, r1Top, col2R, r1Bot, S);
-        c.drawText("REGN 14d", col2L + wPad, r1Top + hdrOff, lblHdr);
-        float todayRain = rainByDay[0];
-        float weekRain = 0f;
-        java.util.Calendar weekCal = java.util.Calendar.getInstance();
-        weekCal.setFirstDayOfWeek(java.util.Calendar.MONDAY);
-        int thisWeek = weekCal.get(java.util.Calendar.WEEK_OF_YEAR);
-        int thisYear = weekCal.get(java.util.Calendar.YEAR);
-        for (int i = 0; i < 14; i++) {
-            if (weekCal.get(java.util.Calendar.WEEK_OF_YEAR) == thisWeek
-                    && weekCal.get(java.util.Calendar.YEAR) == thisYear) {
-                weekRain += rainByDay[i];
-            }
-            weekCal.add(java.util.Calendar.DAY_OF_YEAR, -1);
-        }
-        String weekRainStr = (Math.abs(weekRain - Math.round(weekRain)) < 0.05f)
-                ? String.format(Locale.getDefault(), "%.0fmm", weekRain)
-                : String.format(Locale.getDefault(), "%.1fmm", weekRain);
-        String todayRainStr = String.format(Locale.getDefault(), "%.1f", todayRain).replace('.', ',') + "mm";
-        String rainHdrStr = weekRainStr + " - Idag: " + todayRainStr;
-        c.drawText(rainHdrStr, col2R - wPad - lblValNormal.measureText(rainHdrStr), r1Top + hdrOff, lblValNormal);
+        c.drawText("REGN 12u", col2L + wPad, r1Top + hdrOff, lblHdr);
+        String todayRainStr = "Idag: " + formatRainMm(todayRainMm);
+        c.drawText(todayRainStr, col2R - wPad - lblValNormal.measureText(todayRainStr), r1Top + hdrOff, lblValNormal);
         float rainTopExtra = Math.max(10f, 14f * S);
         float rainYLabelW = Math.max(14f, 18f * S);
         float r7GT = r1Top + gTopOff + rainTopExtra;
@@ -1512,30 +1829,34 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float r7GW = col2R - col2L - wPad - rainYLabelW - wPad;
         float r7Base = r7GT + r7GH;
         float maxRain = 1f;
-        for (float r : rainByDay) maxRain = Math.max(maxRain, r);
-        int maxMmLine = Math.max(1, (int) Math.ceil(maxRain));
+        for (float r : rainByWeek) maxRain = Math.max(maxRain, r);
+        float[] rainAxis = chooseRainYAxis(maxRain);
+        float rainAxisMax = rainAxis[0];
+        float rainAxisStep = rainAxis[1];
         Paint rainYLblP = new Paint(lblPy);
         rainYLblP.setTextAlign(Paint.Align.LEFT);
-        for (int mm = 1; mm <= maxMmLine; mm++) {
-            float y = r7Base - r7GH * (mm / maxRain);
+        for (float mm = rainAxisStep; mm <= rainAxisMax + 0.01f; mm += rainAxisStep) {
+            float y = r7Base - r7GH * (mm / rainAxisMax);
             c.drawLine(r7GL, y, r7GL + r7GW, y, gridP);
-            c.drawText(String.format(Locale.getDefault(), "%d", mm), col2L + wPad, y + 6f * S, rainYLblP);
+            String yLabel = (Math.abs(mm - Math.round(mm)) < 0.01f)
+                    ? String.format(Locale.getDefault(), "%.0f", mm)
+                    : String.format(Locale.getDefault(), "%.1f", mm);
+            c.drawText(yLabel, col2L + wPad, y + 6f * S, rainYLblP);
         }
         c.drawLine(r7GL, r7Base, r7GL + r7GW, r7Base, gridP);
-        float bGap = r7GW / 14f;
+        int weekCount = rainByWeek.length;
+        float bGap = r7GW / weekCount;
         float bW = bGap * 0.72f;
         float barRadius = Math.max(1.5f, 2f * S);
-        String[] dayNames = new String[14];
-        dayNames[0] = "Idag";
-        java.text.SimpleDateFormat daySdf = new java.text.SimpleDateFormat("E", new java.util.Locale("no", "NO"));
-        java.util.Calendar cal = java.util.Calendar.getInstance();
-        for (int i = 1; i < 14; i++) {
-            java.util.Calendar tempCal = (java.util.Calendar) cal.clone();
-            tempCal.add(java.util.Calendar.DAY_OF_YEAR, -i);
-            String name = daySdf.format(tempCal.getTime());
-            if (name.endsWith(".")) name = name.substring(0, name.length() - 1);
-            dayNames[i] = name.length() > 0 ? name.substring(0, 1).toUpperCase() : "?";
+        java.util.Calendar weekLabelCal = java.util.Calendar.getInstance();
+        weekLabelCal.setTimeInMillis(getWeekMondayMillis(System.currentTimeMillis()));
+        String[] weekLabels = new String[weekCount];
+        for (int i = 0; i < weekCount; i++) {
+            weekLabels[i] = formatRainWeekLabel(weekLabelCal);
+            weekLabelCal.add(java.util.Calendar.WEEK_OF_YEAR, -1);
         }
+        Paint weekLblP = new Paint(dayLblP);
+        weekLblP.setTextSize(Math.max(11f, axisTxt * 0.82f));
         Paint barP = new Paint();
         barP.setAntiAlias(false);
         Paint zeroDashP = new Paint();
@@ -1549,11 +1870,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         mmLblP.setTextSize(axisTxt);
         mmLblP.setTextAlign(Paint.Align.CENTER);
         float dashW = bW * 0.72f;
-        for (int i = 0; i < 14; i++) {
+        for (int i = 0; i < weekCount; i++) {
             float bCX = r7GL + r7GW - bGap * i - bGap / 2f;
-            float rainVal = rainByDay[i];
+            float rainVal = rainByWeek[i];
             if (rainVal > 0f) {
-                float bH = r7GH * (rainVal / maxRain);
+                float bH = r7GH * (rainVal / rainAxisMax);
                 float bT = r7Base - bH;
                 barP.setShader(new android.graphics.LinearGradient(
                         0, r7Base, 0, bT,
@@ -1568,7 +1889,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             } else {
                 c.drawLine(bCX - dashW / 2f, r7Base, bCX + dashW / 2f, r7Base, zeroDashP);
             }
-            c.drawText(dayNames[i], bCX - dayLblP.measureText(dayNames[i]) / 2f, r7Base + xAxisYOffset, dayLblP);
+            c.drawText(weekLabels[i], bCX - weekLblP.measureText(weekLabels[i]) / 2f, r7Base + xAxisYOffset, weekLblP);
         }
 
         // --- Aktuelt Utetemperatur ---
@@ -1613,9 +1934,13 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
         c.drawText(humStr, humGroupX + iconSize + iconTextGap, textY, naP);
 
-        // === ROW 2: Regnstyrke | Solstraling | Jordfuktighet ===
-        // --- Regnstyrke ---
+        // === ROW 2: Lyn/Regnstyrke | Solstraling | Jordfuktighet ===
         drawWidgetCard(c, col1L, r2Top, col1R, r2Bot, S);
+        if (detailPageVersion == 2) {
+            drawLightningWidget(c, col1L, col1R, r2Top, r2Bot, S, wPad, hdrOff, gLeft, gTopOff,
+                    tGW, tGH, xAxisYOffset, gridP, lblHdr, lblValNormal, lblP, lblPy, axisTxt, baseTxt);
+        } else {
+        // --- Regnstyrke ---
         c.drawText("REGNSTYRKE", col1L+wPad, r2Top+hdrOff, lblHdr);
         float maxHR = 0.0f; for (float r : hourlyRain) maxHR = Math.max(maxHR, r);
         c.drawText(String.format(Locale.getDefault(), "%.1f mm/t", maxHR), col1R-wPad-lblVal.measureText(String.format(Locale.getDefault(), "%.1f mm/t", maxHR)), r2Top+hdrOff, lblVal);
@@ -1630,6 +1955,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         for (int hr = 0; hr <= 24; hr += 6) { float x = rrGL+rrGW*(1f-hr/24f); c.drawLine(x, rrGT, x, rrGT+rrGH, gridP);
             String sl = new SimpleDateFormat("HH", Locale.getDefault()).format(new Date(System.currentTimeMillis()-hr*3_600_000L));
             c.drawText(sl, x-lblP.measureText(sl)/2f, rrGT+rrGH+xAxisYOffset, lblP); }
+        }
 
         // --- Solstraling ---
         drawWidgetCard(c, col2L, r2Top, col2R, r2Bot, S);
