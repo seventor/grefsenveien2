@@ -2161,6 +2161,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, col1L, r3Top, col2R, r3Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal);
             drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, col3L, r3Top, col3R, r3Bot, false, true, S, wPad, hdrOff, lblHdr, lblValNormal);
             drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, col3L, r4Top, col3R, r4Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal);
+            drawRoomTemperatureGrid(c, col1L, r4Top, col2R - col1L, camRowH, S);
         }
 
         // === ROW 3: Cameras + room cards (Versjon 1 only) ===
@@ -2169,40 +2170,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, 0f, r3Top, camW, r3Bot, false, true, S, wPad, hdrOff, lblHdr, lblValNormal);
         drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, camW+gap, r3Top, (float) w, r3Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal);
 
-        // === ROOM TEMPERATURES ===
-        float gapRoom = 8f * S;
-        float roomCardH = (roomH - 3f * gapRoom) / 4f;
-        float gridY = r4Top;
-
-        // Row 1: 3 cards (Attic / Loft level)
-        float rw3 = ((float) w - 2f * gapRoom) / 3f;
-        drawRoomCard(c, "Jonatan", valJonatan, 0f, gridY, rw3, roomCardH, valJonatanMotionTime);
-        drawRoomCard(c, "Loftsgang", valLoftsgang, rw3+gapRoom, gridY, rw3, roomCardH, valLoftsgangMotionTime);
-        drawRoomCard(c, "Kontor", valKontor, 2f*(rw3+gapRoom), gridY, rw3, roomCardH, 0L);
-
-        gridY += roomCardH + gapRoom;
-
-        // Row 2: 4 cards (First floor / Overetasje)
-        float rw4 = ((float) w - 3f * gapRoom) / 4f;
-        drawRoomCard(c, "Bad", valBad, 0f, gridY, rw4, roomCardH, valBadMotionTime);
-        drawRoomCard(c, "Kj\u00f8kken", valKjokken, rw4+gapRoom, gridY, rw4, roomCardH, 0L);
-        drawRoomCard(c, "Lite bad", valLiteBad, 2f*(rw4+gapRoom), gridY, rw4, roomCardH, 0L);
-        drawRoomCard(c, "Mats", valMats, 3f*(rw4+gapRoom), gridY, rw4, roomCardH, 0L);
-
-        gridY += roomCardH + gapRoom;
-
-        // Row 3: 4 cards (Main floor / Hovedetasje)
-        drawRoomCard(c, "Vinterhage", valVinterhage, 0f, gridY, rw4, roomCardH, 0L);
-        drawRoomCard(c, "Stue", valStue, rw4+gapRoom, gridY, rw4, roomCardH, valStueMotionTime);
-        drawRoomCard(c, "Gang", valGang3, 2f*(rw4+gapRoom), gridY, rw4, roomCardH, 0L);
-        drawRoomCard(c, "Soverom", valSoverom, 3f*(rw4+gapRoom), gridY, rw4, roomCardH, 0L);
-
-        gridY += roomCardH + gapRoom;
-
-        // Row 4: 2 cards (Basement / Underetasje)
-        float rw2 = ((float) w - gapRoom) / 2f;
-        drawRoomCard(c, "Gang", valGang4, 0f, gridY, rw2, roomCardH, valGang4MotionTime);
-        drawRoomCard(c, "Vaskerom", valVaskerom, rw2+gapRoom, gridY, rw2, roomCardH, valVaskeromMotionTime);
+        drawRoomTemperatureGrid(c, 0f, r4Top, w, roomH, S);
         }
 
         return bmp;
@@ -2315,6 +2283,39 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         } else {
             return c29;
         }
+    }
+
+    private void drawRoomTemperatureGrid(android.graphics.Canvas canvas, float areaLeft, float areaTop,
+            float areaWidth, float areaHeight, float S) {
+        float gapRoom = 8f * S;
+        float roomCardH = (areaHeight - 3f * gapRoom) / 4f;
+        float gridY = areaTop;
+
+        float rw3 = (areaWidth - 2f * gapRoom) / 3f;
+        drawRoomCard(canvas, "Jonatan", valJonatan, areaLeft, gridY, rw3, roomCardH, valJonatanMotionTime);
+        drawRoomCard(canvas, "Loftsgang", valLoftsgang, areaLeft + rw3 + gapRoom, gridY, rw3, roomCardH, valLoftsgangMotionTime);
+        drawRoomCard(canvas, "Kontor", valKontor, areaLeft + 2f * (rw3 + gapRoom), gridY, rw3, roomCardH, 0L);
+
+        gridY += roomCardH + gapRoom;
+
+        float rw4 = (areaWidth - 3f * gapRoom) / 4f;
+        drawRoomCard(canvas, "Bad", valBad, areaLeft, gridY, rw4, roomCardH, valBadMotionTime);
+        drawRoomCard(canvas, "Kj\u00f8kken", valKjokken, areaLeft + rw4 + gapRoom, gridY, rw4, roomCardH, 0L);
+        drawRoomCard(canvas, "Lite bad", valLiteBad, areaLeft + 2f * (rw4 + gapRoom), gridY, rw4, roomCardH, 0L);
+        drawRoomCard(canvas, "Mats", valMats, areaLeft + 3f * (rw4 + gapRoom), gridY, rw4, roomCardH, 0L);
+
+        gridY += roomCardH + gapRoom;
+
+        drawRoomCard(canvas, "Vinterhage", valVinterhage, areaLeft, gridY, rw4, roomCardH, 0L);
+        drawRoomCard(canvas, "Stue", valStue, areaLeft + rw4 + gapRoom, gridY, rw4, roomCardH, valStueMotionTime);
+        drawRoomCard(canvas, "Gang", valGang3, areaLeft + 2f * (rw4 + gapRoom), gridY, rw4, roomCardH, 0L);
+        drawRoomCard(canvas, "Soverom", valSoverom, areaLeft + 3f * (rw4 + gapRoom), gridY, rw4, roomCardH, 0L);
+
+        gridY += roomCardH + gapRoom;
+
+        float rw2 = (areaWidth - gapRoom) / 2f;
+        drawRoomCard(canvas, "Gang", valGang4, areaLeft, gridY, rw2, roomCardH, valGang4MotionTime);
+        drawRoomCard(canvas, "Vaskerom", valVaskerom, areaLeft + rw2 + gapRoom, gridY, rw2, roomCardH, valVaskeromMotionTime);
     }
 
     private void drawRoomCard(android.graphics.Canvas canvas, String name, float temp, float x, float y, float w, float h, long motionTime) {
