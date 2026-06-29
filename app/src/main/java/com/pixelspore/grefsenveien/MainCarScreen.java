@@ -310,13 +310,16 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
                 if (displayTimestamp != null && !displayTimestamp.isEmpty()) {
                     if (currentMode == ViewMode.HOME) {
+                        float homeS = drawWidth / 1440f;
+                        float hdrTxt = Math.max(17f, 23f * homeS);
+                        float hdrOff = Math.max(24f, 32f * homeS);
                         Paint textPaint = new Paint();
                         textPaint.setColor(android.graphics.Color.WHITE);
-                        textPaint.setTextSize(24f);
+                        textPaint.setTextSize(hdrTxt);
                         textPaint.setAntiAlias(true);
-                        float textX = 12f;
-                        float textY = 56f;
-                        canvas.drawText(displayTimestamp, textX, textY, textPaint);
+                        textPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.NORMAL));
+                        float textX = Math.max(14f, 20f * homeS);
+                        canvas.drawText(displayTimestamp, textX, hdrOff, textPaint);
                     } else {
                         drawTimestampBadge(canvas, displayTimestamp, 0f, 0f,
                                 drawWidth, drawHeight, getCameraTabTimestampTextSize(drawWidth));
@@ -2152,24 +2155,19 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             Paint noDP = new Paint(); noDP.setColor(android.graphics.Color.GRAY); noDP.setTextSize(baseTxt); noDP.setAntiAlias(true); c.drawText("Ingen data", sGL+sGW*0.2f, sGT+sGH/2f, noDP);
         }
 
-        // === ROW 3: Camera widgets (Versjon 2 only) ===
+        // === ROW 3–4: Camera widgets (Versjon 2 only) ===
         if (detailPageVersion == 2) {
-            float weatherL = col1L;
-            float weatherR = col2R;
-            float yardMailL = col3L;
-            float yardMailR = col3R;
-            float camGap = gap;
-            float camMidY = r3Top + (r3Bot - r3Top - camGap) / 2f;
-            drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, weatherL, r3Top, weatherR, r3Bot, true, false);
-            drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, yardMailL, r3Top, yardMailR, camMidY, false, true);
-            drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, yardMailL, camMidY + camGap, yardMailR, r3Bot, false, false);
+            float r4Bot = r4Top + camRowH;
+            drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, col1L, r3Top, col2R, r3Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal);
+            drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, col3L, r3Top, col3R, r3Bot, false, true, S, wPad, hdrOff, lblHdr, lblValNormal);
+            drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, col3L, r4Top, col3R, r4Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal);
         }
 
         // === ROW 3: Cameras + room cards (Versjon 1 only) ===
         if (detailPageVersion == 1) {
         float camW = (w - gap) / 2f;
-        drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, 0f, r3Top, camW, r3Bot);
-        drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, camW+gap, r3Top, (float) w, r3Bot);
+        drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, 0f, r3Top, camW, r3Bot, false, true, S, wPad, hdrOff, lblHdr, lblValNormal);
+        drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, camW+gap, r3Top, (float) w, r3Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal);
 
         // === ROOM TEMPERATURES ===
         float gapRoom = 8f * S;
@@ -2467,15 +2465,9 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     }
 
     private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr,
-            float left, float top, float right, float bottom) {
-        boolean yardCrop = title != null && (title.equals("G\u00c5RDSPLASSEN") || title.equals("GÅRDSPLASSEN"));
-        drawCameraWidget(canvas, bmp, title, tsStr, left, top, right, bottom, false, yardCrop);
-    }
-
-    private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr,
-            float left, float top, float right, float bottom, boolean fitContain, boolean yardCropOffset) {
-        float cardS = (right - left) / 480f;
-        drawWidgetCard(canvas, left, top, right, bottom, cardS);
+            float left, float top, float right, float bottom, boolean fitContain, boolean yardCropOffset,
+            float layoutS, float wPad, float hdrOff, Paint lblHdr, Paint lblValNormal) {
+        drawWidgetCard(canvas, left, top, right, bottom, layoutS);
         if (bmp != null) {
             android.graphics.Path clipPath = new android.graphics.Path();
             clipPath.addRoundRect(new android.graphics.RectF(left, top, right, bottom), 18f, 18f, android.graphics.Path.Direction.CW);
@@ -2517,28 +2509,22 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             }
             canvas.drawBitmap(bmp, src, dst, bmpPaint);
 
-            float S = cardW / 712f;
-            float bannerH = Math.max(30f, 40f * S);
             Paint bannerP = new Paint();
             bannerP.setColor(android.graphics.Color.argb(160, 0, 0, 0));
-            canvas.drawRect(left, top, right, top + bannerH, bannerP);
+            canvas.drawRect(left, top, right, top + hdrOff, bannerP);
 
-            Paint bannerText = new Paint();
-            bannerText.setAntiAlias(true);
-            bannerText.setColor(android.graphics.Color.WHITE);
-            bannerText.setTextSize(Math.max(17f, 23f * S));
-            bannerText.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
-            canvas.drawText(title, left + 22f * S, top + bannerH * 0.65f, bannerText);
+            float bannerMidY = top + hdrOff / 2f;
+            Paint.FontMetrics hdrFm = lblHdr.getFontMetrics();
+            float titleBaselineY = bannerMidY - (hdrFm.ascent + hdrFm.descent) / 2f;
+            canvas.drawText(title, left + wPad, titleBaselineY, lblHdr);
 
-            Paint tsText = new Paint();
-            tsText.setAntiAlias(true);
-            tsText.setColor(android.graphics.Color.parseColor("#CCCCCC"));
-            tsText.setTextSize(Math.max(17f, 23f * S));
             String displayTs = (tsStr != null && !tsStr.isEmpty()) ? tsStr : "Live";
-            canvas.drawText(displayTs, right - 22f * S - tsText.measureText(displayTs), top + bannerH * 0.65f, tsText);
+            Paint.FontMetrics tsFm = lblValNormal.getFontMetrics();
+            float tsBaselineY = bannerMidY - (tsFm.ascent + tsFm.descent) / 2f;
+            canvas.drawText(displayTs, right - wPad - lblValNormal.measureText(displayTs), tsBaselineY, lblValNormal);
 
             canvas.restore();
-            drawWidgetCardBorder(canvas, left, top, right, bottom, cardS);
+            drawWidgetCardBorder(canvas, left, top, right, bottom, layoutS);
         } else {
             Paint textPaint = new Paint();
             textPaint.setAntiAlias(true);
