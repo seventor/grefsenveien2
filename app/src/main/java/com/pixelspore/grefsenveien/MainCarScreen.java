@@ -2154,12 +2154,15 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
         // === ROW 3: Camera widgets (Versjon 2 only) ===
         if (detailPageVersion == 2) {
-            float cam1L = col1L, cam1R = col1R;
-            float cam2L = col2L, cam2R = col2R;
-            float cam3L = col3L, cam3R = col3R;
-            drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, cam1L, r3Top, cam1R, r3Bot, true, false);
-            drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, cam2L, r3Top, cam2R, r3Bot, false, true);
-            drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, cam3L, r3Top, cam3R, r3Bot, false, false);
+            float weatherL = col1L;
+            float weatherR = col2R;
+            float yardMailL = col3L;
+            float yardMailR = col3R;
+            float camGap = gap;
+            float camMidY = r3Top + (r3Bot - r3Top - camGap) / 2f;
+            drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, weatherL, r3Top, weatherR, r3Bot, true, false);
+            drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, yardMailL, r3Top, yardMailR, camMidY, false, true);
+            drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, yardMailL, camMidY + camGap, yardMailR, r3Bot, false, false);
         }
 
         // === ROW 3: Cameras + room cards (Versjon 1 only) ===
