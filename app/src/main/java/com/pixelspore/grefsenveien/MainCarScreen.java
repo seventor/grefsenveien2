@@ -2161,7 +2161,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, col1L, r3Top, col2R, r3Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal);
             drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, col3L, r3Top, col3R, r3Bot, false, true, S, wPad, hdrOff, lblHdr, lblValNormal);
             drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, col3L, r4Top, col3R, r4Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal);
-            drawRoomTemperatureGrid(c, col1L, r4Top, col2R - col1L, camRowH, S);
+            drawRoomTemperatureGrid(c, col1L, r4Top, colW, camRowH, S);
         }
 
         // === ROW 3: Cameras + room cards (Versjon 1 only) ===
