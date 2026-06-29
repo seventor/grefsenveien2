@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.TreeMap;
 import android.graphics.Path;
+import android.graphics.DashPathEffect;
 import android.graphics.Typeface;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -966,11 +967,19 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
     private static final int HA_HISTORY_CONNECT_TIMEOUT_MS = 15_000;
     private static final int HA_HISTORY_READ_TIMEOUT_MS = 15_000;
+    private static final int HA_HISTORY_LONG_READ_TIMEOUT_MS = 60_000;
     private static final int HA_HISTORY_MAX_ATTEMPTS = 3;
     private static final int HA_HISTORY_RETRY_DELAY_MS = 1_500;
 
     @Nullable
     private String fetchHaHistoryJsonWithRetry(@NonNull String label, @NonNull String url) {
+        return fetchHaHistoryJsonWithRetry(label, url,
+                HA_HISTORY_CONNECT_TIMEOUT_MS, HA_HISTORY_READ_TIMEOUT_MS);
+    }
+
+    @Nullable
+    private String fetchHaHistoryJsonWithRetry(@NonNull String label, @NonNull String url,
+            int connectTimeoutMs, int readTimeoutMs) {
         Exception lastError = null;
         for (int attempt = 1; attempt <= HA_HISTORY_MAX_ATTEMPTS; attempt++) {
             HttpURLConnection conn = null;
@@ -979,8 +988,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 conn.setRequestMethod("GET");
                 conn.setRequestProperty("Authorization", "Bearer " + BuildConfig.HA_TOKEN);
                 conn.setRequestProperty("Content-Type", "application/json");
-                conn.setConnectTimeout(HA_HISTORY_CONNECT_TIMEOUT_MS);
-                conn.setReadTimeout(HA_HISTORY_READ_TIMEOUT_MS);
+                conn.setConnectTimeout(connectTimeoutMs);
+                conn.setReadTimeout(readTimeoutMs);
                 conn.connect();
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
@@ -997,8 +1006,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             } catch (java.net.SocketTimeoutException e) {
                 lastError = e;
                 Log.w("GrefsenveienApp", label + " failed: timeout after "
-                        + HA_HISTORY_CONNECT_TIMEOUT_MS + "ms connect / "
-                        + HA_HISTORY_READ_TIMEOUT_MS + "ms read"
+                        + connectTimeoutMs + "ms connect / "
+                        + readTimeoutMs + "ms read"
                         + " (attempt " + attempt + "/" + HA_HISTORY_MAX_ATTEMPTS + ")");
             } catch (Exception e) {
                 lastError = e;
@@ -1033,6 +1042,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
             List<float[]> todayTempPoints = new ArrayList<>();
             List<float[]> yesterdayTempPoints = new ArrayList<>();
+            List<float[]> twoDaysAgoTempPoints = new ArrayList<>();
+            List<float[]> sixtyDayAvgTempPoints = new ArrayList<>();
             float[] rainByWeek = new float[12];
             float todayRainMm = 0f;
             float[] hourlyRain = new float[24];
@@ -1046,11 +1057,12 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             dayCal.set(java.util.Calendar.MILLISECOND, 0);
             long todayMidnight = dayCal.getTimeInMillis();
             long yesterdayMidnight = todayMidnight - 24L * 3600_000;
+            long twoDaysAgoMidnight = yesterdayMidnight - 24L * 3600_000;
 
-            // 1. Fetch Temp (48h for today + yesterday comparison)
+            // 1. Fetch Temp (72h for today + yesterday + 2 days ago comparison)
             try {
                 String tempUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
-                        + isoFmt.format(new Date(now - 48L * 3600_000))
+                        + isoFmt.format(new Date(now - 72L * 3600_000))
                         + "?filter_entity_id=sensor.vaerstasjon_temp"
                         + "&end_time=" + isoFmt.format(new Date(now));
                 String json = fetchHaHistoryJsonWithRetry(
@@ -1078,6 +1090,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                                     if (hourOfDay >= 0f && hourOfDay <= 24f) {
                                         yesterdayTempPoints.add(new float[]{hourOfDay, temp});
                                     }
+                                } else if (ts >= twoDaysAgoMidnight) {
+                                    float hourOfDay = (ts - twoDaysAgoMidnight) / 3_600_000f;
+                                    if (hourOfDay >= 0f && hourOfDay <= 24f) {
+                                        twoDaysAgoTempPoints.add(new float[]{hourOfDay, temp});
+                                    }
                                 }
                             } catch (NumberFormatException ignored) {}
                         }
@@ -1092,6 +1109,29 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 }
             } catch (Exception e) {
                 Log.w("GrefsenveienApp", "Failed to parse temperature history", e);
+            }
+
+            // 1b. Fetch 60d temp for diurnal average curve
+            long sixtyDaysAgo = now - 60L * 24 * 3600_000;
+            try {
+                String avgTempUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
+                        + isoFmt.format(new Date(sixtyDaysAgo))
+                        + "?filter_entity_id=sensor.vaerstasjon_temp"
+                        + "&end_time=" + isoFmt.format(new Date(now));
+                String avgJson = fetchHaHistoryJsonWithRetry(
+                        "Temperature 60d average (sensor.vaerstasjon_temp)", avgTempUrl,
+                        HA_HISTORY_CONNECT_TIMEOUT_MS, HA_HISTORY_LONG_READ_TIMEOUT_MS);
+                if (avgJson != null) {
+                    JSONArray outer = new JSONArray(avgJson);
+                    if (outer.length() > 0) {
+                        sixtyDayAvgTempPoints = computeSixtyDayHourlyAverage(outer.getJSONArray(0), sixtyDaysAgo);
+                    } else {
+                        Log.w("GrefsenveienApp",
+                                "Temperature 60d average (sensor.vaerstasjon_temp): empty response array");
+                    }
+                }
+            } catch (Exception e) {
+                Log.w("GrefsenveienApp", "Failed to parse 60-day temperature average", e);
             }
 
             // 2. Fetch Rain 12 weeks (daily values aggregated per Monday week)
@@ -1357,8 +1397,13 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             if (!yesterdayTempPoints.isEmpty()) {
                 yesterdayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
             }
+            if (!twoDaysAgoTempPoints.isEmpty()) {
+                twoDaysAgoTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
+            }
+            float[] todayTempMinMax = computeTodayTempMinMax(todayTempPoints);
             todayTempPoints = bucketTempPointsHourly(todayTempPoints);
             yesterdayTempPoints = bucketTempPointsHourly(yesterdayTempPoints);
+            twoDaysAgoTempPoints = bucketTempPointsHourly(twoDaysAgoTempPoints);
             float currentHour = (now - todayMidnight) / 3_600_000f;
             if (!todayTempPoints.isEmpty()) {
                 float lastVal = todayTempPoints.get(todayTempPoints.size() - 1)[1];
@@ -1373,6 +1418,15 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 if (lastYesterday[0] < 24f) {
                     yesterdayTempPoints.add(new float[]{24f, lastYesterday[1]});
                 }
+            }
+            if (!twoDaysAgoTempPoints.isEmpty()) {
+                float[] lastTwoDaysAgo = twoDaysAgoTempPoints.get(twoDaysAgoTempPoints.size() - 1);
+                if (lastTwoDaysAgo[0] < 24f) {
+                    twoDaysAgoTempPoints.add(new float[]{24f, lastTwoDaysAgo[1]});
+                }
+            }
+            if (!sixtyDayAvgTempPoints.isEmpty()) {
+                sixtyDayAvgTempPoints = alignAverageCurveToNow(sixtyDayAvgTempPoints, currentHour, curTemp);
             }
 
             // Fetch live room temperatures (guaranteed robust as each is try-catched inside fetchSensorState)
@@ -1407,7 +1461,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         : (mSurfaceContainer != null ? mSurfaceContainer.getWidth() : 1440);
                 int chartH = lastCanvasHeight > 0 ? lastCanvasHeight
                         : (mSurfaceContainer != null ? mSurfaceContainer.getHeight() : 2080);
-                Bitmap chart = renderTemperatureChart(todayTempPoints, yesterdayTempPoints, rainByWeek, todayRainMm, hourlyRain, soilPoints, chartW, chartH);
+                Bitmap chart = renderTemperatureChart(todayTempPoints, yesterdayTempPoints, twoDaysAgoTempPoints, sixtyDayAvgTempPoints, todayTempMinMax[0], todayTempMinMax[1], rainByWeek, todayRainMm, hourlyRain, soilPoints, chartW, chartH);
                 SimpleDateFormat disp = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
                 String ts = "Oppdatert " + disp.format(new Date(now));
                 getCarContext().getMainExecutor().execute(() -> {
@@ -1641,6 +1695,77 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         return result;
     }
 
+    /** Min/max from all raw readings since midnight (not hourly-bucketed values). */
+    private float[] computeTodayTempMinMax(List<float[]> rawTodayPoints) {
+        float minT = Float.MAX_VALUE;
+        float maxT = -Float.MAX_VALUE;
+        for (float[] p : rawTodayPoints) {
+            minT = Math.min(minT, p[1]);
+            maxT = Math.max(maxT, p[1]);
+        }
+        if (minT == Float.MAX_VALUE) {
+            return new float[]{14f, 16f};
+        }
+        return new float[]{minT, maxT};
+    }
+
+    /** Hour-of-day average (0–24) from all readings in the last 60 days. */
+    private List<float[]> computeSixtyDayHourlyAverage(JSONArray states, long sinceMs) {
+        double[] sum = new double[24];
+        int[] count = new int[24];
+        java.util.Calendar hourCal = java.util.Calendar.getInstance();
+        for (int i = 0; i < states.length(); i++) {
+            try {
+                JSONObject obj = states.getJSONObject(i);
+                float temp = Float.parseFloat(obj.getString("state"));
+                long ts = parseIsoTimestamp(obj.getString("last_changed"));
+                if (ts < sinceMs) continue;
+                hourCal.setTimeInMillis(ts);
+                int hour = hourCal.get(java.util.Calendar.HOUR_OF_DAY);
+                sum[hour] += temp;
+                count[hour]++;
+            } catch (Exception ignored) {}
+        }
+        List<float[]> result = new ArrayList<>();
+        for (int h = 0; h < 24; h++) {
+            if (count[h] > 0) {
+                result.add(new float[]{h, (float) (sum[h] / count[h])});
+            }
+        }
+        if (!result.isEmpty()) {
+            result.add(new float[]{24f, result.get(0)[1]});
+        }
+        return result;
+    }
+
+    private float interpolateTempAtHour(List<float[]> points, float hour) {
+        if (points.isEmpty()) return 0f;
+        if (points.size() == 1) return points.get(0)[1];
+        hour = Math.max(0f, Math.min(24f, hour));
+        for (int i = 0; i < points.size() - 1; i++) {
+            float[] a = points.get(i);
+            float[] b = points.get(i + 1);
+            if (hour >= a[0] && hour <= b[0]) {
+                float span = b[0] - a[0];
+                if (span < 0.0001f) return a[1];
+                float t = (hour - a[0]) / span;
+                return a[1] + t * (b[1] - a[1]);
+            }
+        }
+        return points.get(points.size() - 1)[1];
+    }
+
+    /** Shift diurnal average so it matches current outdoor temp at the current hour. */
+    private List<float[]> alignAverageCurveToNow(List<float[]> avgPoints, float currentHour, float currentTemp) {
+        if (avgPoints.isEmpty()) return avgPoints;
+        float offset = currentTemp - interpolateTempAtHour(avgPoints, currentHour);
+        List<float[]> adjusted = new ArrayList<>(avgPoints.size());
+        for (float[] p : avgPoints) {
+            adjusted.add(new float[]{p[0], p[1] + offset});
+        }
+        return adjusted;
+    }
+
     private void buildSmoothPath(Path path, List<float[]> screenPoints, float tension) {
         if (screenPoints.isEmpty()) return;
         path.moveTo(screenPoints.get(0)[0], screenPoints.get(0)[1]);
@@ -1694,21 +1819,43 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.drawPath(linePath, lineP);
     }
 
-    private Bitmap renderTemperatureChart(List<float[]> todayTempPoints, List<float[]> yesterdayTempPoints, float[] rainByWeek, float todayRainMm, float[] hourlyRain, List<float[]> soilPoints, int w, int h) {
+    private void drawOutdoorTempDashedLine(Canvas canvas, List<float[]> points, float minT, float range,
+            float tGL, float tGT, float tGW, float tGH, int lineColor, float S, float tension) {
+        if (points.size() < 2) return;
+        List<float[]> screen = new ArrayList<>();
+        for (float[] p : points) {
+            float x = tGL + tGW * (p[0] / 24f);
+            float y = tGT + tGH * (1f - (p[1] - minT) / range);
+            screen.add(new float[]{x, y});
+        }
+        Path linePath = new Path();
+        buildSmoothPath(linePath, screen, tension);
+        Paint lineP = new Paint();
+        lineP.setColor(lineColor);
+        lineP.setStrokeWidth(2.5f * S);
+        lineP.setStyle(Paint.Style.STROKE);
+        lineP.setAntiAlias(true);
+        lineP.setStrokeJoin(Paint.Join.ROUND);
+        lineP.setStrokeCap(Paint.Cap.ROUND);
+        lineP.setPathEffect(new DashPathEffect(new float[]{10f * S, 7f * S}, 0f));
+        canvas.drawPath(linePath, lineP);
+    }
+
+    private Bitmap renderTemperatureChart(List<float[]> todayTempPoints, List<float[]> yesterdayTempPoints, List<float[]> twoDaysAgoTempPoints, List<float[]> sixtyDayAvgTempPoints, float todayMinT, float todayMaxT, float[] rainByWeek, float todayRainMm, float[] hourlyRain, List<float[]> soilPoints, int w, int h) {
         todayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
         yesterdayTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
+        twoDaysAgoTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
+        sixtyDayAvgTempPoints.sort((a, b) -> Float.compare(a[0], b[0]));
 
         float minT = Float.MAX_VALUE, maxT = -Float.MAX_VALUE;
-        float todayMinT = Float.MAX_VALUE, todayMaxT = -Float.MAX_VALUE;
         for (float[] p : todayTempPoints) {
             minT = Math.min(minT, p[1]);
             maxT = Math.max(maxT, p[1]);
-            todayMinT = Math.min(todayMinT, p[1]);
-            todayMaxT = Math.max(todayMaxT, p[1]);
         }
         for (float[] p : yesterdayTempPoints) { minT = Math.min(minT, p[1]); maxT = Math.max(maxT, p[1]); }
+        for (float[] p : twoDaysAgoTempPoints) { minT = Math.min(minT, p[1]); maxT = Math.max(maxT, p[1]); }
+        for (float[] p : sixtyDayAvgTempPoints) { minT = Math.min(minT, p[1]); maxT = Math.max(maxT, p[1]); }
         if (minT == Float.MAX_VALUE) { minT = 14f; maxT = 16f; }
-        if (todayMinT == Float.MAX_VALUE) { todayMinT = minT; todayMaxT = maxT; }
         float range = maxT - minT;
         if (range < 2f) { minT -= 1; maxT += 1; range = 2f; }
 
@@ -1808,7 +1955,15 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         int colorToday = android.graphics.Color.parseColor("#27C93F");
         int colorTodayFill = android.graphics.Color.parseColor("#1A27C93F");
         int colorYesterday = android.graphics.Color.argb(90, 255, 95, 86);
+        int colorTwoDaysAgo = android.graphics.Color.argb(45, 255, 95, 86);
+        int colorSixtyDayAvg = android.graphics.Color.argb(140, 160, 168, 176);
         float lineTension = 0.1f;
+        if (!sixtyDayAvgTempPoints.isEmpty()) {
+            drawOutdoorTempDashedLine(c, sixtyDayAvgTempPoints, minT, range, tGL, tGT, tGW, tGH, colorSixtyDayAvg, S, lineTension);
+        }
+        if (!twoDaysAgoTempPoints.isEmpty()) {
+            drawOutdoorTempLine(c, twoDaysAgoTempPoints, minT, range, tGL, tGT, tGW, tGH, colorTwoDaysAgo, S, lineTension, null);
+        }
         if (!yesterdayTempPoints.isEmpty()) {
             drawOutdoorTempLine(c, yesterdayTempPoints, minT, range, tGL, tGT, tGW, tGH, colorYesterday, S, lineTension, null);
         }
@@ -1859,21 +2014,15 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         weekLblP.setTextSize(Math.max(11f, axisTxt * 0.82f));
         Paint barP = new Paint();
         barP.setAntiAlias(false);
-        Paint zeroDashP = new Paint();
-        zeroDashP.setColor(android.graphics.Color.parseColor("#4FA5F7"));
-        zeroDashP.setStrokeWidth(Math.max(1.5f, 2f * S));
-        zeroDashP.setAntiAlias(false);
-        zeroDashP.setStrokeCap(Paint.Cap.BUTT);
         Paint mmLblP = new Paint();
         mmLblP.setAntiAlias(true);
         mmLblP.setColor(android.graphics.Color.WHITE);
         mmLblP.setTextSize(axisTxt);
         mmLblP.setTextAlign(Paint.Align.CENTER);
-        float dashW = bW * 0.72f;
         for (int i = 0; i < weekCount; i++) {
             float bCX = r7GL + r7GW - bGap * i - bGap / 2f;
             float rainVal = rainByWeek[i];
-            if (rainVal > 0f) {
+            if (rainVal > 0.05f) {
                 float bH = r7GH * (rainVal / rainAxisMax);
                 float bT = r7Base - bH;
                 barP.setShader(new android.graphics.LinearGradient(
@@ -1886,8 +2035,6 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 android.graphics.Paint.FontMetrics mmFm = mmLblP.getFontMetrics();
                 float mmY = bT - Math.max(4f * S, mmFm.descent + 2f * S);
                 c.drawText(mmStr, bCX, mmY, mmLblP);
-            } else {
-                c.drawLine(bCX - dashW / 2f, r7Base, bCX + dashW / 2f, r7Base, zeroDashP);
             }
             c.drawText(weekLabels[i], bCX - weekLblP.measureText(weekLabels[i]) / 2f, r7Base + xAxisYOffset, weekLblP);
         }
