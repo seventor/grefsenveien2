@@ -2361,7 +2361,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             long diff = System.currentTimeMillis() - motionTime;
             if (diff >= 0 && diff <= 3600_000L) {
                 recentlyDetected = true;
-                motionTimeStr = new java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(new java.util.Date(motionTime));
+                motionTimeStr = new java.text.SimpleDateFormat("mm", Locale.getDefault())
+                        .format(new java.util.Date(motionTime));
             }
         }
 
@@ -2377,22 +2378,18 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.drawText(tempStr, x + (w - tempWidth) / 2f, y + h * 0.83f, tempPaint);
 
         if (recentlyDetected) {
-            float S = w / 164f; // Local scale factor for card
+            float S = w / 164f;
             android.graphics.Paint motionPaint = new android.graphics.Paint();
             motionPaint.setAntiAlias(true);
-            motionPaint.setTextSize(textSize);
+            motionPaint.setTextSize(textSize * 0.9f);
             motionPaint.setColor(android.graphics.Color.parseColor("#8E9AA8"));
             motionPaint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            
-            // Draw on vertical layout (på høykant) along the right edge
-            canvas.save();
-            float cx = x + w - Math.max(10f, 12f * S);
-            float cy = y + h / 2f;
-            canvas.translate(cx, cy);
-            canvas.rotate(-90f);
-            float txtW = motionPaint.measureText(motionTimeStr);
-            canvas.drawText(motionTimeStr, -txtW / 2f, motionPaint.getTextSize() * 0.36f, motionPaint);
-            canvas.restore();
+
+            float pad = Math.max(6f, 8f * S);
+            Paint.FontMetrics motionFm = motionPaint.getFontMetrics();
+            float motionBaselineY = y + pad - motionFm.ascent;
+            float motionX = x + w - pad - motionPaint.measureText(motionTimeStr);
+            canvas.drawText(motionTimeStr, motionX, motionBaselineY, motionPaint);
         }
     }
 
