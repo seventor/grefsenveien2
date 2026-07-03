@@ -20,10 +20,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
-final class VgNoScreenshotCapturer {
+final class NrkScreenshotCapturer {
 
     private static final String TAG = "GrefsenveienApp";
-    private static final String VG_URL = "https://www.vg.no";
+    private static final String NRK_URL = "https://www.nrk.no";
     private static final String USER_AGENT =
             "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 "
                     + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
@@ -31,16 +31,16 @@ final class VgNoScreenshotCapturer {
     private static final int READ_TIMEOUT_MS = 15_000;
 
     private static final Pattern TITLE_PATTERN =
-            Pattern.compile("<h3 class=\"_title[^\"]*\"[^>]*>([^<]+)");
+            Pattern.compile("<h3 class=\"kur-newsfeed__message-title\">([^<]+)");
     private static final Pattern TIMESTAMP_PATTERN =
-            Pattern.compile("<span data-nosnippet=\"true\">([^<]+)</span>");
+            Pattern.compile("<time[^>]*class=\"kur-newsfeed__message-time\"[^>]*>\\s*([^<]+)");
 
     interface Callback {
         void onBitmapReady(@NonNull Bitmap bitmap);
         void onError();
     }
 
-    private VgNoScreenshotCapturer() {}
+    private NrkScreenshotCapturer() {}
 
     static void capture(@NonNull Context context, int widthPx, int heightPx, @NonNull Callback callback) {
         Handler main = new Handler(Looper.getMainLooper());
@@ -50,18 +50,18 @@ final class VgNoScreenshotCapturer {
                 Bitmap bitmap = fetchAndRender(widthPx, heightPx);
                 main.post(() -> callback.onBitmapReady(bitmap));
             } catch (Exception e) {
-                Log.e(TAG, "VG.no fetch failed", e);
+                Log.e(TAG, "NRK.no fetch failed", e);
                 main.post(callback::onError);
             }
-        }, "VgNoFetch").start();
+        }, "NrkFetch").start();
     }
 
     private static Bitmap fetchAndRender(int width, int height) throws Exception {
         String html = fetchHtml();
         List<String> titles = parseMatches(html, TITLE_PATTERN);
         List<String> timestamps = parseMatches(html, TIMESTAMP_PATTERN);
-        Bitmap bitmap = NewsColumnRenderer.render(NewsColumnRenderer.Brand.VG, width, height, titles, timestamps);
-        Log.d(TAG, "VG.no render ready " + bitmap.getWidth() + "x" + bitmap.getHeight());
+        Bitmap bitmap = NewsColumnRenderer.render(NewsColumnRenderer.Brand.NRK, width, height, titles, timestamps);
+        Log.d(TAG, "NRK.no render ready " + bitmap.getWidth() + "x" + bitmap.getHeight());
         return bitmap;
     }
 
@@ -77,7 +77,7 @@ final class VgNoScreenshotCapturer {
     private static String fetchHtml() throws Exception {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(VG_URL);
+            URL url = new URL(NRK_URL);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -89,7 +89,7 @@ final class VgNoScreenshotCapturer {
 
             int code = connection.getResponseCode();
             if (code != HttpURLConnection.HTTP_OK) {
-                throw new IllegalStateException("VG.no HTTP " + code);
+                throw new IllegalStateException("NRK.no HTTP " + code);
             }
 
             InputStream stream = connection.getInputStream();

@@ -20,10 +20,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
-final class VgNoScreenshotCapturer {
+final class AftenpostenScreenshotCapturer {
 
     private static final String TAG = "GrefsenveienApp";
-    private static final String VG_URL = "https://www.vg.no";
+    private static final String AP_URL = "https://www.aftenposten.no";
     private static final String USER_AGENT =
             "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 "
                     + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
@@ -40,7 +40,7 @@ final class VgNoScreenshotCapturer {
         void onError();
     }
 
-    private VgNoScreenshotCapturer() {}
+    private AftenpostenScreenshotCapturer() {}
 
     static void capture(@NonNull Context context, int widthPx, int heightPx, @NonNull Callback callback) {
         Handler main = new Handler(Looper.getMainLooper());
@@ -50,18 +50,19 @@ final class VgNoScreenshotCapturer {
                 Bitmap bitmap = fetchAndRender(widthPx, heightPx);
                 main.post(() -> callback.onBitmapReady(bitmap));
             } catch (Exception e) {
-                Log.e(TAG, "VG.no fetch failed", e);
+                Log.e(TAG, "Aftenposten.no fetch failed", e);
                 main.post(callback::onError);
             }
-        }, "VgNoFetch").start();
+        }, "AftenpostenFetch").start();
     }
 
     private static Bitmap fetchAndRender(int width, int height) throws Exception {
         String html = fetchHtml();
         List<String> titles = parseMatches(html, TITLE_PATTERN);
         List<String> timestamps = parseMatches(html, TIMESTAMP_PATTERN);
-        Bitmap bitmap = NewsColumnRenderer.render(NewsColumnRenderer.Brand.VG, width, height, titles, timestamps);
-        Log.d(TAG, "VG.no render ready " + bitmap.getWidth() + "x" + bitmap.getHeight());
+        Bitmap bitmap = NewsColumnRenderer.render(
+                NewsColumnRenderer.Brand.AFTENPOSTEN, width, height, titles, timestamps);
+        Log.d(TAG, "Aftenposten.no render ready " + bitmap.getWidth() + "x" + bitmap.getHeight());
         return bitmap;
     }
 
@@ -77,7 +78,7 @@ final class VgNoScreenshotCapturer {
     private static String fetchHtml() throws Exception {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(VG_URL);
+            URL url = new URL(AP_URL);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -89,7 +90,7 @@ final class VgNoScreenshotCapturer {
 
             int code = connection.getResponseCode();
             if (code != HttpURLConnection.HTTP_OK) {
-                throw new IllegalStateException("VG.no HTTP " + code);
+                throw new IllegalStateException("Aftenposten.no HTTP " + code);
             }
 
             InputStream stream = connection.getInputStream();
