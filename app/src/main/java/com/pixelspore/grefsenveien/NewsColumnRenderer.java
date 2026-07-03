@@ -4,13 +4,13 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Typeface;
-import android.text.Html;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,10 +19,13 @@ final class NewsColumnRenderer {
 
     static final float HEADER_HEIGHT_RATIO = 0.11f;
     static final float LOGO_TEXT_RATIO = 0.38f;
-    static final float TITLE_TEXT_RATIO = 0.042f;
-    static final float TIME_TEXT_RATIO = 0.032f;
-    static final float SECTION_HEIGHT_RATIO = 0.055f;
-    static final float ITEM_GAP_RATIO = 0.018f;
+    static final float TITLE_TEXT_RATIO = 0.052f;
+    static final float TIME_TEXT_RATIO = 0.040f;
+    static final float CONTENT_TOP_PAD_RATIO = 0.02f;
+    static final float ITEM_GAP_RATIO = 0.028f;
+    static final float TITLE_TIME_GAP_RATIO = 0.014f;
+    static final float IMAGE_SIZE_RATIO = 0.22f;
+    static final float IMAGE_TEXT_GAP_RATIO = 0.025f;
     static final float HORIZONTAL_PAD_RATIO = 0.06f;
     private static final int MAX_HEADLINES = 40;
 
@@ -42,9 +45,9 @@ final class NewsColumnRenderer {
 
     private NewsColumnRenderer() {}
 
-    static Bitmap render(@NonNull Brand brand, int width, int height,
-            @NonNull List<String> titles, @NonNull List<String> timestamps) throws IllegalStateException {
-        if (titles.isEmpty()) {
+    static Bitmap render(@NonNull Brand brand, int width, int height, @NonNull List<NewsItem> items)
+            throws IllegalStateException {
+        if (items.isEmpty()) {
             throw new IllegalStateException("No headlines found for " + brand.label);
         }
         width = Math.max(280, width);
@@ -52,13 +55,18 @@ final class NewsColumnRenderer {
 
         int pad = Math.round(width * HORIZONTAL_PAD_RATIO);
         int headerH = Math.round(width * HEADER_HEIGHT_RATIO);
-        int sectionH = Math.round(width * SECTION_HEIGHT_RATIO);
-        int itemGap = Math.max(4, Math.round(width * ITEM_GAP_RATIO));
+        int contentTopPad = Math.round(width * CONTENT_TOP_PAD_RATIO);
+        int itemGap = Math.round(width * ITEM_GAP_RATIO);
+        int titleTimeGap = Math.round(width * TITLE_TIME_GAP_RATIO);
+        int thumbSize = Math.round(width * IMAGE_SIZE_RATIO);
+        int thumbGap = Math.round(width * IMAGE_TEXT_GAP_RATIO);
         int bottomPad = pad;
 
         int bgColor = android.graphics.Color.parseColor("#F4F4F4");
         int titleColor = android.graphics.Color.parseColor("#111111");
         int timeColor = android.graphics.Color.parseColor("#666666");
+        int imagePlaceholder = android.graphics.Color.parseColor("#DDDDDD");
+        int recentItemBgColor = android.graphics.Color.parseColor("#AFC8F2");
 
         float logoSize = headerH * LOGO_TEXT_RATIO;
         float titleSize = width * TITLE_TEXT_RATIO;
@@ -68,11 +76,6 @@ final class NewsColumnRenderer {
         logoPaint.setColor(android.graphics.Color.WHITE);
         logoPaint.setTextSize(logoSize);
         logoPaint.setTypeface(Typeface.DEFAULT_BOLD);
-
-        TextPaint sectionPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        sectionPaint.setColor(titleColor);
-        sectionPaint.setTextSize(titleSize);
-        sectionPaint.setTypeface(Typeface.DEFAULT_BOLD);
 
         TextPaint titlePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         titlePaint.setColor(titleColor);
@@ -84,36 +87,38 @@ final class NewsColumnRenderer {
         timePaint.setTextSize(timeSize);
 
         int contentWidth = width - pad * 2;
-        int availableForItems = height - headerH - sectionH - bottomPad;
+        int textWidthWithImage = contentWidth - thumbSize - thumbGap;
+        int availableForItems = height - headerH - contentTopPad - bottomPad;
 
-        List<StaticLayout> titleLayouts = new ArrayList<>();
-        List<String> itemTimes = new ArrayList<>();
+        List<RenderedNewsItem> renderedItems = new ArrayList<>();
         int usedHeight = 0;
-        int maxItems = Math.min(MAX_HEADLINES, titles.size());
+        int maxItems = Math.min(MAX_HEADLINES, items.size());
 
         for (int i = 0; i < maxItems; i++) {
-            String title = decodeHtml(titles.get(i).trim());
-            int maxLines = titleLayouts.isEmpty() ? 3 : 2;
-            StaticLayout layout = buildLayout(title, titlePaint, contentWidth, maxLines);
-            int itemH = layout.getHeight() + 4 + Math.round(timeSize) + itemGap;
-            if (!titleLayouts.isEmpty() && usedHeight + itemH > availableForItems) {
+            NewsItem item = items.get(i);
+            boolean hasImage = item.image != null && !item.image.isRecycled();
+            int textWidth = hasImage ? textWidthWithImage : contentWidth;
+            int maxLines = renderedItems.isEmpty() ? 3 : 2;
+            StaticLayout layout = buildLayout(item.title, titlePaint, textWidth, maxLines);
+            int textBlockH = layout.getHeight() + titleTimeGap + Math.round(timeSize);
+            int blockH = hasImage ? Math.max(thumbSize, textBlockH) : textBlockH;
+            int totalItemH = blockH + itemGap;
+
+            if (!renderedItems.isEmpty() && usedHeight + totalItemH > availableForItems) {
                 break;
             }
-            titleLayouts.add(layout);
-            itemTimes.add(i < timestamps.size() ? decodeHtml(timestamps.get(i).trim()) : "");
-            usedHeight += itemH;
+            renderedItems.add(new RenderedNewsItem(item, layout, hasImage, blockH));
+            usedHeight += totalItemH;
         }
 
-        if (titleLayouts.isEmpty()) {
-            String title = decodeHtml(titles.get(0).trim());
-            titleLayouts.add(buildLayout(title, titlePaint, contentWidth, 1));
-            itemTimes.add(timestamps.isEmpty() ? "" : decodeHtml(timestamps.get(0).trim()));
-            usedHeight = titleLayouts.get(0).getHeight() + 4 + Math.round(timeSize) + itemGap;
-        }
-
-        float extraGapPerItem = 0f;
-        if (titleLayouts.size() > 1 && usedHeight < availableForItems) {
-            extraGapPerItem = (availableForItems - usedHeight) / (float) titleLayouts.size();
+        if (renderedItems.isEmpty()) {
+            NewsItem item = items.get(0);
+            boolean hasImage = item.image != null && !item.image.isRecycled();
+            int textWidth = hasImage ? textWidthWithImage : contentWidth;
+            StaticLayout layout = buildLayout(item.title, titlePaint, textWidth, 1);
+            int textBlockH = layout.getHeight() + titleTimeGap + Math.round(timeSize);
+            int blockH = hasImage ? Math.max(thumbSize, textBlockH) : textBlockH;
+            renderedItems.add(new RenderedNewsItem(item, layout, hasImage, blockH));
         }
 
         Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
@@ -125,27 +130,91 @@ final class NewsColumnRenderer {
         canvas.drawRect(0, 0, width, headerH, headerBg);
         canvas.drawText(brand.label, pad, headerH * 0.68f, logoPaint);
 
-        float y = headerH + sectionH * 0.75f;
-        canvas.drawText("Siste nytt", pad, y, sectionPaint);
-        y += sectionH * 0.55f;
+        float y = headerH + contentTopPad;
 
-        for (int i = 0; i < titleLayouts.size(); i++) {
-            StaticLayout layout = titleLayouts.get(i);
-            canvas.save();
-            canvas.translate(pad, y);
-            layout.draw(canvas);
-            canvas.restore();
-            y += layout.getHeight() + 4f;
+        Paint imagePaint = new Paint();
+        imagePaint.setFilterBitmap(true);
+        imagePaint.setAntiAlias(true);
+        Paint placeholderPaint = new Paint();
+        placeholderPaint.setColor(imagePlaceholder);
+        Paint recentItemBgPaint = new Paint();
+        recentItemBgPaint.setColor(recentItemBgColor);
 
-            String time = itemTimes.get(i);
-            if (!time.isEmpty()) {
-                canvas.drawText(time, pad, y + timeSize, timePaint);
-                y += timeSize;
+        for (RenderedNewsItem rendered : renderedItems) {
+            float blockTop = y;
+            float textLeft = pad;
+
+            if (NewsTimestampParser.isPublishedWithinLast30Minutes(rendered.item.publishedMs)) {
+                canvas.drawRect(0f, blockTop, width, blockTop + rendered.blockH, recentItemBgPaint);
             }
-            y += itemGap + extraGapPerItem;
+
+            if (rendered.hasImage) {
+                android.graphics.RectF imageRect = new android.graphics.RectF(
+                        pad, blockTop, pad + thumbSize, blockTop + thumbSize);
+                canvas.drawRect(imageRect, placeholderPaint);
+                drawCenterCroppedBitmap(canvas, rendered.item.image, imageRect, imagePaint);
+                textLeft = pad + thumbSize + thumbGap;
+            }
+
+            canvas.save();
+            canvas.translate(textLeft, blockTop);
+            rendered.layout.draw(canvas);
+            canvas.restore();
+
+            float timeY = blockTop + rendered.layout.getHeight() + titleTimeGap + timeSize;
+            if (!rendered.item.timestamp.isEmpty()) {
+                canvas.drawText(rendered.item.timestamp, textLeft, timeY, timePaint);
+            }
+
+            y += rendered.blockH + itemGap;
         }
 
         return bitmap;
+    }
+
+    static void loadItemImages(@NonNull List<NewsItem> items, int thumbSizePx, @Nullable String referer) {
+        int max = Math.min(MAX_HEADLINES, items.size());
+        for (int i = 0; i < max; i++) {
+            NewsItem item = items.get(i);
+            if (item.imageUrl == null) {
+                continue;
+            }
+            item.image = NewsImageLoader.load(item.imageUrl, thumbSizePx, referer);
+        }
+    }
+
+    private static void drawCenterCroppedBitmap(Canvas canvas, Bitmap bitmap,
+            android.graphics.RectF dst, Paint paint) {
+        int bmpW = bitmap.getWidth();
+        int bmpH = bitmap.getHeight();
+        if (bmpW <= 0 || bmpH <= 0 || dst.width() <= 0f || dst.height() <= 0f) {
+            return;
+        }
+
+        float dstRatio = dst.width() / dst.height();
+        float srcRatio = bmpW / (float) bmpH;
+        android.graphics.Rect src;
+        if (srcRatio > dstRatio) {
+            int srcH = bmpH;
+            int srcW = Math.round(bmpH * dstRatio);
+            int left = (bmpW - srcW) / 2;
+            src = new android.graphics.Rect(left, 0, left + srcW, srcH);
+        } else {
+            int srcW = bmpW;
+            int srcH = Math.round(bmpW / dstRatio);
+            int top = (bmpH - srcH) / 2;
+            src = new android.graphics.Rect(0, top, srcW, top + srcH);
+        }
+        canvas.drawBitmap(bitmap, src, dst, paint);
+    }
+
+    static void recycleItemImages(@NonNull List<NewsItem> items) {
+        for (NewsItem item : items) {
+            if (item.image != null && !item.image.isRecycled()) {
+                item.image.recycle();
+            }
+            item.image = null;
+        }
     }
 
     private static StaticLayout buildLayout(String text, TextPaint paint, int width, int maxLines) {
@@ -158,7 +227,17 @@ final class NewsColumnRenderer {
                 .build();
     }
 
-    private static String decodeHtml(String raw) {
-        return Html.fromHtml(raw, Html.FROM_HTML_MODE_LEGACY).toString();
+    private static final class RenderedNewsItem {
+        final NewsItem item;
+        final StaticLayout layout;
+        final boolean hasImage;
+        final int blockH;
+
+        RenderedNewsItem(NewsItem item, StaticLayout layout, boolean hasImage, int blockH) {
+            this.item = item;
+            this.layout = layout;
+            this.hasImage = hasImage;
+            this.blockH = blockH;
+        }
     }
 }

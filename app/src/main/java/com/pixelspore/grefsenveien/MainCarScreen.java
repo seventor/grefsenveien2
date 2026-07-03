@@ -79,10 +79,13 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private TabContent slot3Content = TabContent.DETALJER;
     private Bitmap vgNoBitmap = null;
     private boolean vgNoCaptureInProgress = false;
+    private boolean vgNoFetchFailed = false;
     private Bitmap aftenpostenBitmap = null;
     private boolean aftenpostenCaptureInProgress = false;
+    private boolean aftenpostenFetchFailed = false;
     private Bitmap nrkBitmap = null;
     private boolean nrkCaptureInProgress = false;
+    private boolean nrkFetchFailed = false;
     private long vgNoUpdatedMs = 0L;
     private long aftenpostenUpdatedMs = 0L;
     private long nrkUpdatedMs = 0L;
@@ -520,14 +523,44 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         Paint dividerPaint = new Paint();
         dividerPaint.setColor(android.graphics.Color.parseColor("#222633"));
         dividerPaint.setStrokeWidth(2f);
-        drawNewsPanel(canvas, vgNoBitmap, vgNoCaptureInProgress, NewsColumnRenderer.Brand.VG, vgNoUpdatedMs,
-                0f, topPad, colW, h);
+        drawNewsPanelSafe(canvas, vgNoBitmap, vgNoCaptureInProgress, vgNoFetchFailed,
+                NewsColumnRenderer.Brand.VG, vgNoUpdatedMs, 0f, topPad, colW, h);
         canvas.drawLine(col2, topPad, col2, h, dividerPaint);
-        drawNewsPanel(canvas, aftenpostenBitmap, aftenpostenCaptureInProgress,
+        drawNewsPanelSafe(canvas, aftenpostenBitmap, aftenpostenCaptureInProgress, aftenpostenFetchFailed,
                 NewsColumnRenderer.Brand.AFTENPOSTEN, aftenpostenUpdatedMs, colW, topPad, col3, h);
         canvas.drawLine(col3, topPad, col3, h, dividerPaint);
-        drawNewsPanel(canvas, nrkBitmap, nrkCaptureInProgress, NewsColumnRenderer.Brand.NRK, nrkUpdatedMs,
-                col3, topPad, w, h);
+        drawNewsPanelSafe(canvas, nrkBitmap, nrkCaptureInProgress, nrkFetchFailed,
+                NewsColumnRenderer.Brand.NRK, nrkUpdatedMs, col3, topPad, w, h);
+    }
+
+    private void drawNewsPanelSafe(android.graphics.Canvas canvas, Bitmap bitmap, boolean loading,
+            boolean fetchFailed, NewsColumnRenderer.Brand brand, long lastUpdatedMs,
+            float left, float top, float right, float bottom) {
+        try {
+            drawNewsPanel(canvas, bitmap, loading, fetchFailed, brand, lastUpdatedMs, left, top, right, bottom);
+        } catch (Exception e) {
+            Log.e("GrefsenveienApp", "News panel draw failed: " + brand.label, e);
+            drawNewsPanelFallback(canvas, brand, left, top, right, bottom);
+        }
+    }
+
+    private void drawNewsPanelFallback(android.graphics.Canvas canvas, NewsColumnRenderer.Brand brand,
+            float left, float top, float right, float bottom) {
+        float panelW = right - left;
+        float panelH = bottom - top;
+        float headerH = panelW * NewsColumnRenderer.HEADER_HEIGHT_RATIO;
+        Paint headerBg = new Paint();
+        headerBg.setColor(brand.headerColor);
+        canvas.drawRect(left, top, right, top + headerH, headerBg);
+        drawNewsBrandLabel(canvas, left, top, right, top + headerH, brand);
+        Paint contentBg = new Paint();
+        contentBg.setColor(android.graphics.Color.parseColor("#F4F4F4"));
+        canvas.drawRect(left, top + headerH, right, bottom, contentBg);
+        Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        textPaint.setColor(android.graphics.Color.parseColor("#666666"));
+        textPaint.setTextSize(panelW * NewsColumnRenderer.TITLE_TEXT_RATIO);
+        canvas.drawText("Kunne ikke vise", left + panelW * NewsColumnRenderer.HORIZONTAL_PAD_RATIO,
+                top + headerH + (panelH - headerH) * 0.5f, textPaint);
     }
 
     private void drawSettingsScreen(Canvas canvas) {
@@ -602,28 +635,32 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     }
 
     private void drawNewsPanel(android.graphics.Canvas canvas, Bitmap bitmap, boolean loading,
-            NewsColumnRenderer.Brand brand, long lastUpdatedMs, float left, float top, float right, float bottom) {
+            boolean fetchFailed, NewsColumnRenderer.Brand brand, long lastUpdatedMs,
+            float left, float top, float right, float bottom) {
         float panelW = right - left;
         float panelH = bottom - top;
         float headerH = panelW * NewsColumnRenderer.HEADER_HEIGHT_RATIO;
+        boolean hasContent = bitmap != null && !bitmap.isRecycled();
 
-        if (bitmap == null || bitmap.isRecycled()) {
+        if (!hasContent) {
             Paint headerBg = new Paint();
             headerBg.setColor(brand.headerColor);
             canvas.drawRect(left, top, right, top + headerH, headerBg);
             drawNewsBrandLabel(canvas, left, top, right, top + headerH, brand);
-            drawNewsHeaderTimeOverlay(canvas, left, top, right, top + headerH, lastUpdatedMs);
+            if (lastUpdatedMs > 0L) {
+                drawNewsHeaderTimeOverlay(canvas, left, top, right, top + headerH, lastUpdatedMs);
+            }
 
             Paint contentBg = new Paint();
             contentBg.setColor(android.graphics.Color.parseColor("#F4F4F4"));
             canvas.drawRect(left, top + headerH, right, bottom, contentBg);
 
-            if (loading || lastUpdatedMs == 0L) {
+            if (loading || fetchFailed || lastUpdatedMs == 0L) {
                 Paint textPaint = new Paint();
                 textPaint.setAntiAlias(true);
                 textPaint.setColor(android.graphics.Color.parseColor("#666666"));
                 textPaint.setTextSize(panelW * NewsColumnRenderer.TITLE_TEXT_RATIO);
-                String msg = loading ? "Henter..." : "Utilgjengelig";
+                String msg = loading ? "Henter..." : "Kunne ikke hente";
                 canvas.drawText(msg, left + panelW * NewsColumnRenderer.HORIZONTAL_PAD_RATIO,
                         top + headerH + (panelH - headerH) * 0.5f, textPaint);
             }
@@ -700,10 +737,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
             @Override
             public void onError() {
-                mainHandler.post(() -> {
-                    vgNoCaptureInProgress = false;
-                    refreshNewsIfVisible();
-                });
+                mainHandler.post(() -> applyVgNoFetchFailed());
             }
         });
     }
@@ -725,10 +759,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
             @Override
             public void onError() {
-                mainHandler.post(() -> {
-                    aftenpostenCaptureInProgress = false;
-                    refreshNewsIfVisible();
-                });
+                mainHandler.post(() -> applyAftenpostenFetchFailed());
             }
         });
     }
@@ -749,10 +780,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
             @Override
             public void onError() {
-                mainHandler.post(() -> {
-                    nrkCaptureInProgress = false;
-                    refreshNewsIfVisible();
-                });
+                mainHandler.post(() -> applyNrkFetchFailed());
             }
         });
     }
@@ -764,6 +792,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         vgNoBitmap = bitmap;
         vgNoUpdatedMs = System.currentTimeMillis();
         vgNoCaptureInProgress = false;
+        vgNoFetchFailed = false;
         refreshNewsIfVisible();
     }
 
@@ -774,6 +803,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         aftenpostenBitmap = bitmap;
         aftenpostenUpdatedMs = System.currentTimeMillis();
         aftenpostenCaptureInProgress = false;
+        aftenpostenFetchFailed = false;
         refreshNewsIfVisible();
     }
 
@@ -784,6 +814,25 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         nrkBitmap = bitmap;
         nrkUpdatedMs = System.currentTimeMillis();
         nrkCaptureInProgress = false;
+        nrkFetchFailed = false;
+        refreshNewsIfVisible();
+    }
+
+    private void applyVgNoFetchFailed() {
+        vgNoCaptureInProgress = false;
+        vgNoFetchFailed = true;
+        refreshNewsIfVisible();
+    }
+
+    private void applyAftenpostenFetchFailed() {
+        aftenpostenCaptureInProgress = false;
+        aftenpostenFetchFailed = true;
+        refreshNewsIfVisible();
+    }
+
+    private void applyNrkFetchFailed() {
+        nrkCaptureInProgress = false;
+        nrkFetchFailed = true;
         refreshNewsIfVisible();
     }
 

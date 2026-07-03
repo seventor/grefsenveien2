@@ -7,6 +7,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -14,10 +15,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
 final class AftenpostenScreenshotCapturer {
@@ -30,11 +28,6 @@ final class AftenpostenScreenshotCapturer {
     private static final int CONNECT_TIMEOUT_MS = 12_000;
     private static final int READ_TIMEOUT_MS = 15_000;
 
-    private static final Pattern TITLE_PATTERN =
-            Pattern.compile("<h3 class=\"_title[^\"]*\"[^>]*>([^<]+)");
-    private static final Pattern TIMESTAMP_PATTERN =
-            Pattern.compile("<span data-nosnippet=\"true\">([^<]+)</span>");
-
     interface Callback {
         void onBitmapReady(@NonNull Bitmap bitmap);
         void onError();
@@ -46,33 +39,38 @@ final class AftenpostenScreenshotCapturer {
         Handler main = new Handler(Looper.getMainLooper());
 
         new Thread(() -> {
-            try {
-                Bitmap bitmap = fetchAndRender(widthPx, heightPx);
+            Bitmap bitmap = fetchAndRender(widthPx, heightPx);
+            if (bitmap != null) {
                 main.post(() -> callback.onBitmapReady(bitmap));
-            } catch (Exception e) {
-                Log.e(TAG, "Aftenposten.no fetch failed", e);
+            } else {
                 main.post(callback::onError);
             }
         }, "AftenpostenFetch").start();
     }
 
-    private static Bitmap fetchAndRender(int width, int height) throws Exception {
-        String html = fetchHtml();
-        List<String> titles = parseMatches(html, TITLE_PATTERN);
-        List<String> timestamps = parseMatches(html, TIMESTAMP_PATTERN);
-        Bitmap bitmap = NewsColumnRenderer.render(
-                NewsColumnRenderer.Brand.AFTENPOSTEN, width, height, titles, timestamps);
-        Log.d(TAG, "Aftenposten.no render ready " + bitmap.getWidth() + "x" + bitmap.getHeight());
-        return bitmap;
-    }
-
-    private static List<String> parseMatches(String html, Pattern pattern) {
-        List<String> results = new ArrayList<>();
-        Matcher matcher = pattern.matcher(html);
-        while (matcher.find()) {
-            results.add(matcher.group(1));
+    @Nullable
+    private static Bitmap fetchAndRender(int width, int height) {
+        try {
+            String html = fetchHtml();
+            List<NewsItem> items = NewsFeedParser.parseSchibsted(html);
+            if (items.isEmpty()) {
+                Log.w(TAG, "No Aftenposten headlines found");
+                return null;
+            }
+            int thumbSize = Math.round(width * NewsColumnRenderer.IMAGE_SIZE_RATIO);
+            NewsColumnRenderer.loadItemImages(items, thumbSize, "https://www.aftenposten.no/");
+            try {
+                Bitmap bitmap = NewsColumnRenderer.render(
+                        NewsColumnRenderer.Brand.AFTENPOSTEN, width, height, items);
+                Log.d(TAG, "Aftenposten.no render ready " + bitmap.getWidth() + "x" + bitmap.getHeight());
+                return bitmap;
+            } finally {
+                NewsColumnRenderer.recycleItemImages(items);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Aftenposten.no fetch failed", e);
+            return null;
         }
-        return results;
     }
 
     private static String fetchHtml() throws Exception {
