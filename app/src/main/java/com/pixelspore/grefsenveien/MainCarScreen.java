@@ -100,6 +100,12 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private float valHumidity = 45f;
     private float valSolarRad = 0f;
     private float valSolarEnergy24h = 0f;
+    private float valRainRate = 0f;
+
+    private float sunAzimuth = 180f;
+    private float sunElevation = 0f;
+    private long sunNextRisingMs = 0L;
+    private long sunNextSettingMs = 0L;
 
     private static final class DailyTempRange {
         final int dayOfMonth;
@@ -1479,6 +1485,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             valVaskerom = fetchSensorState("sensor.vaskerom_temperatur_temperature", curTemp + 0.4f);
             valHumidity = fetchSensorState("sensor.vaerstasjon_humidity", 45f);
             valSolarRad = fetchSensorState("sensor.vaerstasjon_solar_rad", 0f);
+            valRainRate = fetchSensorState("sensor.vaerstasjon_hourly_rain_rate", 0f);
+            sunAzimuth = fetchSensorState("sensor.sun_solar_azimuth", 180f);
+            sunElevation = fetchSensorState("sensor.sun_solar_elevation", 0f);
+            sunNextRisingMs = parseHaDatetime(fetchSensorStateString("sensor.sun_next_rising", ""));
+            sunNextSettingMs = parseHaDatetime(fetchSensorStateString("sensor.sun_next_setting", ""));
             valSolarEnergy24h = computeRollingSolarEnergy24h(now, isoFmt);
 
             // Fetch motion histories
@@ -1528,6 +1539,59 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         } catch (Exception e) {
             return System.currentTimeMillis();
         }
+    }
+
+    private String fetchSensorStateString(String entityId, String fallbackValue) {
+        try {
+            String urlStr = BuildConfig.HA_BASE_URL + "/api/states/" + entityId;
+            java.net.URL url = new java.net.URL(urlStr);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Authorization", "Bearer " + BuildConfig.HA_TOKEN);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setConnectTimeout(3000);
+            conn.setReadTimeout(3000);
+            conn.connect();
+            if (conn.getResponseCode() == 200) {
+                String json = new String(conn.getInputStream().readAllBytes(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                conn.disconnect();
+                org.json.JSONObject obj = new org.json.JSONObject(json);
+                return obj.getString("state");
+            }
+            conn.disconnect();
+        } catch (Exception e) {
+            android.util.Log.e("GrefsenveienApp", "Failed to fetch state for " + entityId, e);
+        }
+        return fallbackValue;
+    }
+
+    private long parseHaDatetime(String iso) {
+        if (iso == null || iso.isEmpty() || "unavailable".equals(iso) || "unknown".equals(iso)) {
+            return 0L;
+        }
+        try {
+            SimpleDateFormat sdf;
+            if (iso.endsWith("Z")) {
+                sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+                sdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            } else if (iso.length() > 19 && (iso.charAt(19) == '+' || iso.charAt(19) == '-')) {
+                sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US);
+            } else {
+                sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault());
+            }
+            Date d = sdf.parse(iso);
+            return d != null ? d.getTime() : 0L;
+        } catch (Exception e) {
+            return parseIsoTimestamp(iso);
+        }
+    }
+
+    private String formatSunTime(long timeMs) {
+        if (timeMs <= 0L) {
+            return "--:--";
+        }
+        return new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(timeMs));
     }
 
     private long getWeekMondayMillis(long timeMs) {
@@ -1889,6 +1953,138 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float countY = top + gTopOff + plotGH * 0.42f;
         c.drawText(countStr, countCenterX, countY, countP);
         c.drawText("lyn", countCenterX, countY + Math.max(18f, 24f * S), countLblP);
+    }
+
+    private void drawSunPathWidget(android.graphics.Canvas c, float left, float top, float right, float bottom,
+            float S, float wPad, float hdrOff, Paint lblHdr, Paint lblValNormal, Paint lblP, float axisTxt) {
+        drawWidgetCard(c, left, top, right, bottom, S);
+        c.drawText("SOL", left + wPad, top + hdrOff, lblHdr);
+
+        String posStr = String.format(Locale.getDefault(), "H\u00d8YDE %.0f\u00b0 / %.0f\u00b0",
+                sunElevation, sunAzimuth);
+        c.drawText(posStr, right - wPad - lblValNormal.measureText(posStr), top + hdrOff, lblValNormal);
+
+        float timeBlockH = axisTxt * 2.4f;
+        float arcBase = bottom - wPad - timeBlockH;
+        float contentTop = top + hdrOff + Math.max(6f, 8f * S);
+        float arcLeft = left + wPad * 1.2f;
+        float arcRight = right - wPad * 1.2f;
+        float arcCx = (arcLeft + arcRight) / 2f;
+        float maxRByWidth = (arcRight - arcLeft) / 2f;
+        float maxRByHeight = arcBase - contentTop - Math.max(4f, 6f * S);
+        float arcR = Math.min(maxRByWidth, Math.max(0f, maxRByHeight));
+
+        android.graphics.RectF arcOval = new android.graphics.RectF(
+                arcCx - arcR, arcBase - arcR, arcCx + arcR, arcBase + arcR);
+
+        c.save();
+        android.graphics.Path clipPath = new android.graphics.Path();
+        clipPath.addRoundRect(new android.graphics.RectF(left, top, right, bottom), 18f, 18f,
+                android.graphics.Path.Direction.CW);
+        c.clipPath(clipPath);
+
+        Path fillPath = new Path();
+        fillPath.addArc(arcOval, 180f, 180f);
+        fillPath.lineTo(arcRight, arcBase);
+        fillPath.lineTo(arcLeft, arcBase);
+        fillPath.close();
+        Paint fillP = new Paint();
+        fillP.setAntiAlias(true);
+        fillP.setStyle(Paint.Style.FILL);
+        fillP.setShader(new android.graphics.LinearGradient(
+                0f, arcBase - arcR, 0f, arcBase,
+                android.graphics.Color.parseColor("#1F2A3D"),
+                android.graphics.Color.parseColor("#10141C"),
+                android.graphics.Shader.TileMode.CLAMP));
+        c.drawPath(fillPath, fillP);
+
+        Path arcPath = new Path();
+        arcPath.addArc(arcOval, 180f, 180f);
+        Paint arcStrokeP = new Paint();
+        arcStrokeP.setAntiAlias(true);
+        arcStrokeP.setStyle(Paint.Style.STROKE);
+        arcStrokeP.setStrokeWidth(Math.max(2f, 2.5f * S));
+        arcStrokeP.setStrokeCap(Paint.Cap.ROUND);
+        arcStrokeP.setColor(android.graphics.Color.parseColor("#4A5568"));
+        c.drawPath(arcPath, arcStrokeP);
+
+        Paint tickP = new Paint();
+        tickP.setAntiAlias(true);
+        tickP.setStyle(Paint.Style.STROKE);
+        tickP.setStrokeWidth(Math.max(1f, 1.5f * S));
+        tickP.setStrokeCap(Paint.Cap.ROUND);
+        tickP.setColor(android.graphics.Color.parseColor("#5C6A7D"));
+        float tickLen = Math.max(3f, 5f * S);
+        for (int deg = 180; deg <= 360; deg += 10) {
+            double rad = Math.toRadians(deg);
+            float cos = (float) Math.cos(rad);
+            float sin = (float) Math.sin(rad);
+            float x1 = arcCx + arcR * cos;
+            float y1 = arcBase + arcR * sin;
+            c.drawLine(x1, y1, x1 + cos * tickLen, y1 + sin * tickLen, tickP);
+        }
+
+        Paint horizonP = new Paint();
+        horizonP.setColor(android.graphics.Color.parseColor("#222633"));
+        horizonP.setStrokeWidth(Math.max(1f, 1.5f * S));
+        c.drawLine(arcLeft, arcBase, arcRight, arcBase, horizonP);
+
+        float az = sunAzimuth;
+        while (az < 0f) az += 360f;
+        while (az >= 360f) az -= 360f;
+        float t = (az - 90f) / 180f;
+        t = Math.max(0f, Math.min(1f, t));
+        float thetaDeg = 180f + t * 180f;
+        double thetaRad = Math.toRadians(thetaDeg);
+        float onArcX = arcCx + arcR * (float) Math.cos(thetaRad);
+        float onArcY = arcBase + arcR * (float) Math.sin(thetaRad);
+
+        if (sunElevation >= 0f) {
+            float sunX = onArcX;
+            float sunY = onArcY;
+            float sunSize = Math.max(18f, 22f * S);
+
+            Paint outerGlowP = new Paint();
+            outerGlowP.setAntiAlias(true);
+            outerGlowP.setStyle(Paint.Style.FILL);
+            outerGlowP.setColor(android.graphics.Color.parseColor("#55FFD700"));
+            c.drawCircle(sunX, sunY, sunSize * 1.15f, outerGlowP);
+
+            Paint midGlowP = new Paint();
+            midGlowP.setAntiAlias(true);
+            midGlowP.setStyle(Paint.Style.FILL);
+            midGlowP.setColor(android.graphics.Color.parseColor("#88FFC107"));
+            c.drawCircle(sunX, sunY, sunSize * 0.85f, midGlowP);
+
+            Paint innerGlowP = new Paint();
+            innerGlowP.setAntiAlias(true);
+            innerGlowP.setStyle(Paint.Style.FILL);
+            innerGlowP.setColor(android.graphics.Color.parseColor("#CCFFF59D"));
+            c.drawCircle(sunX, sunY, sunSize * 0.42f, innerGlowP);
+
+            Paint sunP = new Paint();
+            sunP.setAntiAlias(true);
+            sunP.setColor(android.graphics.Color.parseColor("#FFD700"));
+            drawSunIcon(c, sunX - sunSize / 2f, sunY - sunSize / 2f, sunSize, sunP);
+        }
+        c.restore();
+
+        Paint timeP = new Paint(lblP);
+        timeP.setTextSize(axisTxt);
+        Paint timeLblP = new Paint(lblP);
+        timeLblP.setTextSize(Math.max(10f, axisTxt * 0.82f));
+        timeLblP.setColor(android.graphics.Color.parseColor("#8E9AA8"));
+
+        float timeY = bottom - wPad;
+        String riseLbl = "Opp";
+        String setLbl = "Ned";
+        String riseStr = formatSunTime(sunNextRisingMs);
+        String setStr = formatSunTime(sunNextSettingMs);
+        c.drawText(riseLbl, arcLeft, timeY - axisTxt * 1.15f, timeLblP);
+        c.drawText(riseStr, arcLeft, timeY, timeP);
+        float setTextW = timeP.measureText(setStr);
+        c.drawText(setLbl, arcRight - timeLblP.measureText(setLbl), timeY - axisTxt * 1.15f, timeLblP);
+        c.drawText(setStr, arcRight - setTextW, timeY, timeP);
     }
 
     private List<float[]> bucketTempPointsHourly(List<float[]> raw) {
@@ -2268,8 +2464,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         Paint.FontMetrics naFm = naValP.getFontMetrics();
         float naContentTop = r1Top + gTopOff;
         float naContentH = r1Bot - naContentTop - wPad * 0.4f;
-        float naRow1CenterY = naContentTop + naContentH * 0.32f;
-        float naRow2CenterY = naContentTop + naContentH * 0.78f;
+        boolean naV2 = detailPageVersion == 2;
+        float naRow1CenterY = naContentTop + naContentH * (naV2 ? 0.22f : 0.32f);
+        float naRow2CenterY = naContentTop + naContentH * (naV2 ? 0.50f : 0.78f);
+        float naRow3CenterY = naContentTop + naContentH * 0.78f;
 
         String tempStr = String.format(Locale.getDefault(), "%.1f\u00b0C", curTemp);
         float naRow1Baseline = naRow1CenterY - (naFm.ascent + naFm.descent) / 2f;
@@ -2306,6 +2504,26 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             drawDropletIcon(c, naLeftX, naRow2IconY, naIconSize, S, naValP);
         }
         c.drawText(humStr, naLeftX + naIconSize + naIconGap, naRow2Baseline, naValP);
+
+        if (naV2) {
+            String rainStr = String.format(Locale.getDefault(), "%.1f mm/t", valRainRate);
+            float naRow3Baseline = naRow3CenterY - (naFm.ascent + naFm.descent) / 2f;
+            float naRow3IconY = naRow3CenterY - naIconSize / 2f;
+            try {
+                android.graphics.drawable.Drawable rainD = androidx.core.content.ContextCompat.getDrawable(
+                        getCarContext(), R.drawable.ic_rain);
+                if (rainD != null) {
+                    rainD.setBounds((int) naLeftX, (int) naRow3IconY,
+                            (int) (naLeftX + naIconSize), (int) (naRow3IconY + naIconSize));
+                    rainD.draw(c);
+                } else {
+                    drawRainIcon(c, naLeftX, naRow3IconY, naIconSize, naValP);
+                }
+            } catch (Exception e) {
+                drawRainIcon(c, naLeftX, naRow3IconY, naIconSize, naValP);
+            }
+            c.drawText(rainStr, naLeftX + naIconSize + naIconGap, naRow3Baseline, naValP);
+        }
 
         String solRadStr = String.format(Locale.getDefault(), "%.0f W/m\u00b2", valSolarRad);
         drawSunIcon(c, naRightX, naRow1IconY, naIconSize, naValP);
@@ -2380,6 +2598,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, col1L, r3Top, col2R, r3Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal, weatherBatteryPercent);
             drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, col3L, r3Top, col3R, r3Bot, false, true, S, wPad, hdrOff, lblHdr, lblValNormal, -1);
             drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, col3L, r4Top, col3R, r4Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal, -1);
+            drawSunPathWidget(c, col2L, r4Top, col2R, r4Bot, S, wPad, hdrOff, lblHdr, lblValNormal, lblP, axisTxt);
             drawRoomTemperatureGrid(c, col1L, r4Top, colW, camRowH, S);
         }
 
@@ -2755,6 +2974,25 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         path.close();
         
         canvas.drawPath(path, p);
+    }
+
+    private void drawRainIcon(android.graphics.Canvas canvas, float x, float y, float size, android.graphics.Paint paint) {
+        android.graphics.Paint p = new android.graphics.Paint(paint);
+        p.setStyle(android.graphics.Paint.Style.FILL);
+        float cloudW = size * 0.82f;
+        float cloudH = size * 0.34f;
+        float cloudLeft = x + (size - cloudW) / 2f;
+        float cloudTop = y + size * 0.12f;
+        canvas.drawRoundRect(cloudLeft, cloudTop, cloudLeft + cloudW, cloudTop + cloudH, cloudH / 2f, cloudH / 2f, p);
+        p.setStrokeWidth(Math.max(1.5f, size * 0.08f));
+        p.setStyle(android.graphics.Paint.Style.STROKE);
+        p.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+        float dropTop = cloudTop + cloudH + size * 0.08f;
+        float dropBot = y + size * 0.88f;
+        for (int i = 0; i < 3; i++) {
+            float dropX = cloudLeft + cloudW * (0.28f + i * 0.22f);
+            canvas.drawLine(dropX, dropTop, dropX, dropBot, p);
+        }
     }
 
     private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr,
