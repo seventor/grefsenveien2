@@ -1,5 +1,6 @@
 package com.pixelspore.grefsenveien;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import java.text.ParseException;
@@ -28,6 +29,19 @@ final class NewsTimestampParser {
 
     static boolean isPublishedWithinLast30Minutes(long publishedMs) {
         return publishedMs > 0L && System.currentTimeMillis() - publishedMs <= RECENT_WINDOW_MS;
+    }
+
+    @NonNull
+    static String formatClockTime(long publishedMs, @Nullable String fallbackTimestamp) {
+        long ms = publishedMs;
+        if (ms <= 0L && fallbackTimestamp != null && !fallbackTimestamp.isEmpty()) {
+            ms = parseDisplayTimestamp(fallbackTimestamp.trim());
+        }
+        if (ms > 0L) {
+            SimpleDateFormat format = new SimpleDateFormat("HH:mm", NB);
+            return format.format(new Date(ms));
+        }
+        return fallbackTimestamp != null ? fallbackTimestamp : "";
     }
 
     static long parsePublishedMs(@Nullable String displayTimestamp, @Nullable String isoDateTime) {

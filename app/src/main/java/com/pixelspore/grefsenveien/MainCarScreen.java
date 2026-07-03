@@ -323,7 +323,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             case NYHETER:
                 return R.drawable.ic_tab_news_outline;
             case TOUR:
-                return R.drawable.ic_tab_tour_outline;
+                return selected ? R.drawable.ic_tab_tour : R.drawable.ic_tab_tour_outline;
             default:
                 return R.drawable.ic_tab_car_outline;
         }
@@ -681,7 +681,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.drawRect(left, top, right, top + headerH, headerBg);
         drawNewsBrandLabel(canvas, left, top, right, top + headerH, brand);
         Paint contentBg = new Paint();
-        contentBg.setColor(android.graphics.Color.parseColor("#F4F4F4"));
+        contentBg.setColor(android.graphics.Color.WHITE);
         canvas.drawRect(left, top + headerH, right, bottom, contentBg);
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(android.graphics.Color.parseColor("#666666"));
@@ -779,7 +779,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             }
 
             Paint contentBg = new Paint();
-            contentBg.setColor(android.graphics.Color.parseColor("#F4F4F4"));
+            contentBg.setColor(android.graphics.Color.WHITE);
             canvas.drawRect(left, top + headerH, right, bottom, contentBg);
 
             if (loading || fetchFailed || lastUpdatedMs == 0L) {
