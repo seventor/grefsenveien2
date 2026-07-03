@@ -49,7 +49,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private static final String MAILBOX_IMAGE_URL = BuildConfig.S3_MAILBOX_IMAGE_URL;
 
     private enum ViewMode { SLOT1, SLOT2, SLOT3, SETTINGS }
-    private enum TabContent { GARDSPLASS, KAMERAER, DETALJER, NYHETER }
+    private enum TabContent { GARDSPLASS, KAMERAER, DETALJER, NYHETER, TOUR }
     private enum ImageTarget { YARD, MAILBOX, WEATHER }
     private ViewMode currentMode = ViewMode.SLOT1;
 
@@ -73,7 +73,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private int lastVisibleLeft;
     private int lastVisibleTop;
 
-    private final android.graphics.RectF[][] settingsTabOptionBounds = new android.graphics.RectF[3][4];
+    private final android.graphics.RectF[][] settingsTabOptionBounds = new android.graphics.RectF[3][5];
     private TabContent slot1Content = TabContent.GARDSPLASS;
     private TabContent slot2Content = TabContent.KAMERAER;
     private TabContent slot3Content = TabContent.DETALJER;
@@ -90,7 +90,12 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private long aftenpostenUpdatedMs = 0L;
     private long nrkUpdatedMs = 0L;
     private static final int NEWS_COLUMN_COUNT = 3;
-    private static final long NEWS_UPDATE_INTERVAL_MS = 60_000L;
+    private static final long NEWS_UPDATE_INTERVAL_MS = 60_000L; // Nyheter: hvert minutt
+    private static final long TOUR_UPDATE_INTERVAL_MS = 60_000L; // Tour de France: hvert minutt
+    private TourStandingsData tourStandingsData = null;
+    private boolean tourFetchInProgress = false;
+    private boolean tourFetchFailed = false;
+    private long tourUpdatedMs = 0L;
 
     private float valJonatan = 23.3f;
     private float valLoftsgang = 25.5f;
@@ -207,6 +212,14 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     };
 
+    private final Runnable mTourUpdater = new Runnable() {
+        @Override
+        public void run() {
+            requestTourStandings(true);
+            mUpdateHandler.postDelayed(this, TOUR_UPDATE_INTERVAL_MS);
+        }
+    };
+
     public MainCarScreen(@NonNull CarContext carContext) {
         super(carContext);
         
@@ -228,7 +241,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             e.printStackTrace();
         }
         for (int slot = 0; slot < 3; slot++) {
-            for (int opt = 0; opt < 4; opt++) {
+            for (int opt = 0; opt < TabContent.values().length; opt++) {
                 settingsTabOptionBounds[slot][opt] = new android.graphics.RectF();
             }
         }
@@ -292,6 +305,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 return "Detaljer";
             case NYHETER:
                 return "Nyheter";
+            case TOUR:
+                return "Tour de France";
             default:
                 return "";
         }
@@ -307,6 +322,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 return selected ? R.drawable.ic_tab_home : R.drawable.ic_tab_home_outline;
             case NYHETER:
                 return R.drawable.ic_tab_news_outline;
+            case TOUR:
+                return R.drawable.ic_tab_tour_outline;
             default:
                 return R.drawable.ic_tab_car_outline;
         }
@@ -350,6 +367,9 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         mUpdateHandler.removeCallbacks(mNewsUpdater);
         mUpdateHandler.post(mNewsUpdater);
 
+        mUpdateHandler.removeCallbacks(mTourUpdater);
+        mUpdateHandler.post(mTourUpdater);
+
         if (getCurrentTabContent() == TabContent.NYHETER) {
             requestNewsScreenshots(false);
         }
@@ -373,6 +393,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         mUpdateHandler.removeCallbacks(mWeatherUpdater);
         mUpdateHandler.removeCallbacks(mHomeUpdater);
         mUpdateHandler.removeCallbacks(mNewsUpdater);
+        mUpdateHandler.removeCallbacks(mTourUpdater);
     }
 
     private void drawCameraImage() {
@@ -415,6 +436,19 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 Canvas canvas = mSurfaceContainer.getSurface().lockCanvas(null);
                 if (canvas != null) {
                     drawNyheterScreen(canvas);
+                    mSurfaceContainer.getSurface().unlockCanvasAndPost(canvas);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            return;
+        }
+
+        if (content == TabContent.TOUR) {
+            try {
+                Canvas canvas = mSurfaceContainer.getSurface().lockCanvas(null);
+                if (canvas != null) {
+                    drawTourScreen(canvas);
                     mSurfaceContainer.getSurface().unlockCanvasAndPost(canvas);
                 }
             } catch (Exception e) {
@@ -518,6 +552,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             mUpdateHandler.removeCallbacks(mHomeUpdater);
             mUpdateHandler.post(mHomeUpdater);
         }
+        if (content == TabContent.TOUR && getCurrentTabContent() == TabContent.TOUR) {
+            mUpdateHandler.removeCallbacks(mTourUpdater);
+            mUpdateHandler.post(mTourUpdater);
+        }
         drawCameraImage();
         invalidate();
     }
@@ -559,6 +597,67 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.drawLine(col3, topPad, col3, h, dividerPaint);
         drawNewsPanelSafe(canvas, nrkBitmap, nrkCaptureInProgress, nrkFetchFailed,
                 NewsColumnRenderer.Brand.NRK, nrkUpdatedMs, col3, topPad, w, h);
+    }
+
+    private void drawTourScreen(Canvas canvas) {
+        float w = canvas.getWidth();
+        float h = canvas.getHeight();
+        float topPad = getTabContentTopPadding(h);
+        canvas.drawColor(android.graphics.Color.parseColor("#0D1117"));
+        if (tourStandingsData != null) {
+            TourStandingsRenderer.draw(canvas, tourStandingsData, 0f, topPad, w, h);
+            return;
+        }
+        Paint bg = new Paint();
+        bg.setColor(android.graphics.Color.WHITE);
+        canvas.drawRect(0f, topPad, w, h, bg);
+        Paint titleBar = new Paint();
+        titleBar.setColor(0xFFFFD200);
+        canvas.drawRect(0f, topPad, w, topPad + 44f, titleBar);
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setColor(android.graphics.Color.BLACK);
+        text.setTextSize(32f);
+        String msg = tourFetchInProgress ? "Henter sammenlagt..." : "Kunne ikke hente Tour de France";
+        canvas.drawText(msg, 24f, topPad + (h - topPad) * 0.5f, text);
+    }
+
+    private void requestTourStandings(boolean forceRefresh) {
+        if (tourFetchInProgress) return;
+        if (!forceRefresh && tourStandingsData != null) return;
+
+        tourFetchInProgress = true;
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+        TourStandingsFetcher.fetch(new TourStandingsFetcher.Callback() {
+            @Override
+            public void onDataReady(@NonNull TourStandingsData data) {
+                mainHandler.post(() -> applyTourStandings(data));
+            }
+
+            @Override
+            public void onError() {
+                mainHandler.post(() -> applyTourFetchFailed());
+            }
+        });
+    }
+
+    private void applyTourStandings(@NonNull TourStandingsData data) {
+        tourStandingsData = data;
+        tourUpdatedMs = System.currentTimeMillis();
+        tourFetchInProgress = false;
+        tourFetchFailed = false;
+        refreshTourIfVisible();
+    }
+
+    private void applyTourFetchFailed() {
+        tourFetchInProgress = false;
+        tourFetchFailed = true;
+        refreshTourIfVisible();
+    }
+
+    private void refreshTourIfVisible() {
+        if (getCurrentTabContent() != TabContent.TOUR) return;
+        drawCameraImage();
+        invalidate();
     }
 
     private void drawNewsPanelSafe(android.graphics.Canvas canvas, Bitmap bitmap, boolean loading,
@@ -954,6 +1053,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private void onTabSelected() {
         if (getCurrentTabContent() == TabContent.NYHETER) {
             requestNewsScreenshots(false);
+        }
+        if (getCurrentTabContent() == TabContent.TOUR) {
+            mUpdateHandler.removeCallbacks(mTourUpdater);
+            mUpdateHandler.post(mTourUpdater);
         }
         drawCameraImage();
         invalidate();
