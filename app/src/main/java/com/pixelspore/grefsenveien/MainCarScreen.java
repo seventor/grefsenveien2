@@ -297,6 +297,34 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     }
 
+    private int getTabContentIconRes(TabContent content, boolean selected) {
+        switch (content) {
+            case GARDSPLASS:
+                return selected ? R.drawable.ic_tab_car : R.drawable.ic_tab_car_outline;
+            case KAMERAER:
+                return selected ? R.drawable.ic_tab_mailbox : R.drawable.ic_tab_mailbox_outline;
+            case DETALJER:
+                return selected ? R.drawable.ic_tab_home : R.drawable.ic_tab_home_outline;
+            case NYHETER:
+                return R.drawable.ic_tab_news_outline;
+            default:
+                return R.drawable.ic_tab_car_outline;
+        }
+    }
+
+    private Action buildSlotTabAction(ViewMode slot, TabContent content) {
+        boolean selected = currentMode == slot;
+        return new Action.Builder()
+                .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(),
+                        getTabContentIconRes(content, selected))).build())
+                .setOnClickListener(() -> {
+                    currentMode = slot;
+                    saveViewMode(slot);
+                    onTabSelected();
+                })
+                .build();
+    }
+
     @Override
     public void onSurfaceAvailable(@NonNull SurfaceContainer surfaceContainer) {
         mSurfaceContainer = surfaceContainer;
@@ -901,36 +929,9 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         ActionStrip actionStrip = actionStripBuilder.build();
 
         ActionStrip mapActionStrip = new ActionStrip.Builder()
-            .addAction(
-                new Action.Builder()
-                    .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(),
-                        currentMode == ViewMode.SLOT1 ? R.drawable.ic_tab_car : R.drawable.ic_tab_car_outline)).build())
-                    .setOnClickListener(() -> {
-                        currentMode = ViewMode.SLOT1;
-                        saveViewMode(ViewMode.SLOT1);
-                        onTabSelected();
-                    })
-                    .build())
-            .addAction(
-                new Action.Builder()
-                    .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(),
-                        currentMode == ViewMode.SLOT2 ? R.drawable.ic_tab_mailbox : R.drawable.ic_tab_mailbox_outline)).build())
-                    .setOnClickListener(() -> {
-                        currentMode = ViewMode.SLOT2;
-                        saveViewMode(ViewMode.SLOT2);
-                        onTabSelected();
-                    })
-                    .build())
-            .addAction(
-                new Action.Builder()
-                    .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(),
-                        currentMode == ViewMode.SLOT3 ? R.drawable.ic_tab_home : R.drawable.ic_tab_home_outline)).build())
-                    .setOnClickListener(() -> {
-                        currentMode = ViewMode.SLOT3;
-                        saveViewMode(ViewMode.SLOT3);
-                        onTabSelected();
-                    })
-                    .build())
+            .addAction(buildSlotTabAction(ViewMode.SLOT1, slot1Content))
+            .addAction(buildSlotTabAction(ViewMode.SLOT2, slot2Content))
+            .addAction(buildSlotTabAction(ViewMode.SLOT3, slot3Content))
             .addAction(
                 new Action.Builder()
                     .setIcon(new CarIcon.Builder(IconCompat.createWithResource(getCarContext(),
