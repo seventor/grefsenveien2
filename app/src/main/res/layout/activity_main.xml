@@ -2,6 +2,7 @@
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -21,15 +22,21 @@
             app:title="Grefsenveien"
             app:titleCentered="true"
             app:titleTextColor="#FFFFFF"
-            app:titleTextAppearance="?attr/textAppearanceHeadline6" />
+            app:titleTextAppearance="?attr/textAppearanceHeadline6"
+            app:menu="@menu/activity_main_menu" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- IMAGES: fill all available space above the bottom bar -->
-    <LinearLayout
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_weight="1">
+
+    <!-- Hjem: kameraer og kontroller -->
+    <LinearLayout
+        android:id="@+id/homeContent"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:orientation="vertical"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
@@ -265,6 +272,20 @@
         </com.google.android.material.card.MaterialCardView>
 
     </LinearLayout>
+
+    <com.pixelspore.grefsenveien.TourStandingsView
+        android:id="@+id/tourContent"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <com.pixelspore.grefsenveien.TourLiveView
+        android:id="@+id/tourLiveContent"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    </FrameLayout>
 
     <!-- BOTTOM BAR: fixed at the bottom -->
     <LinearLayout

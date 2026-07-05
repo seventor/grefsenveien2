@@ -2,4 +2,7 @@
 <resources>
     <string name="app_name">Grefsenveien</string>
     <string name="send_request">Send URL Request</string>
+    <string name="menu_home">Hjem</string>
+    <string name="menu_tour">Tour sammenlagt</string>
+    <string name="menu_tour_live">Tour live</string>
 </resources>

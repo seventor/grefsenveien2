@@ -4,6 +4,11 @@ import android.os.Bundle;
 import android.widget.TextView;
 import android.view.View;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+
+import com.google.android.material.appbar.MaterialToolbar;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -30,7 +35,17 @@ import com.google.android.gms.tasks.Task;
 
 public class MainActivity extends AppCompatActivity {
 
+    private enum PhoneScreen { HOME, TOUR, TOUR_LIVE }
+
+    private static final String PREF_PHONE_SCREEN = "phoneScreen";
+
     private static volatile MainActivity sRunningInstance;
+
+    private PhoneScreen currentScreen = PhoneScreen.HOME;
+    private View homeContent;
+    private TourStandingsView tourContent;
+    private TourLiveView tourLiveContent;
+    private MaterialToolbar toolbar;
 
     private String garageStatus = "";
     private String gateStatus = "";
@@ -64,8 +79,24 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         sRunningInstance = this;
         setContentView(R.layout.activity_main);
+
+        View rootLayout = findViewById(R.id.rootLayout);
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (view, windowInsets) -> {
+            int topInset = windowInsets.getInsets(WindowInsetsCompat.Type.statusBars()).top;
+            int bottomInset = windowInsets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom;
+            view.setPadding(0, topInset, 0, bottomInset);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(rootLayout);
+
+        toolbar = findViewById(R.id.toolbar);
+        homeContent = findViewById(R.id.homeContent);
+        tourContent = findViewById(R.id.tourContent);
+        tourLiveContent = findViewById(R.id.tourLiveContent);
+        setupToolbarMenu();
 
         statusText = findViewById(R.id.statusText);
         imgCamera = findViewById(R.id.imgCamera);
@@ -86,6 +117,8 @@ public class MainActivity extends AppCompatActivity {
         updateStatusText();
 
         prefs = getSharedPreferences("GrefsenveienPrefs", MODE_PRIVATE);
+        currentScreen = parsePhoneScreen(prefs.getString(PREF_PHONE_SCREEN, null));
+        applyPhoneScreen(currentScreen, false);
         
         GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
@@ -127,11 +160,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        mUpdateHandler.removeCallbacks(mImageUpdater);
-        mUpdateHandler.post(mImageUpdater);
-
-        mUpdateHandler.removeCallbacks(mDoorbellUpdater);
-        mUpdateHandler.post(mDoorbellUpdater);
+        if (currentScreen == PhoneScreen.HOME) {
+            startHomeUpdaters();
+        } else if (currentScreen == PhoneScreen.TOUR) {
+            tourContent.startUpdating();
+        } else if (currentScreen == PhoneScreen.TOUR_LIVE) {
+            tourLiveContent.startUpdating();
+        }
 
         // Oppdater felt med innlogget bruker
         if (prefs != null) {
@@ -142,7 +177,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // Last inn postkassebilde en gang ved åpning
-        if (!BuildConfig.S3_MAILBOX_IMAGE_URL.isEmpty()) {
+        if (currentScreen == PhoneScreen.HOME && !BuildConfig.S3_MAILBOX_IMAGE_URL.isEmpty()) {
             fetchMailboxImage(BuildConfig.S3_MAILBOX_IMAGE_URL);
         }
     }
@@ -150,6 +185,99 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        stopHomeUpdaters();
+        tourContent.stopUpdating();
+        tourLiveContent.stopUpdating();
+    }
+
+    private void setupToolbarMenu() {
+        toolbar.setOnMenuItemClickListener(item -> {
+            int id = item.getItemId();
+            if (id == R.id.menu_home) {
+                showPhoneScreen(PhoneScreen.HOME);
+                return true;
+            }
+            if (id == R.id.menu_tour) {
+                showPhoneScreen(PhoneScreen.TOUR);
+                return true;
+            }
+            if (id == R.id.menu_tour_live) {
+                showPhoneScreen(PhoneScreen.TOUR_LIVE);
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private void showPhoneScreen(PhoneScreen screen) {
+        if (currentScreen == screen) {
+            return;
+        }
+        applyPhoneScreen(screen, true);
+    }
+
+    private void applyPhoneScreen(PhoneScreen screen, boolean persist) {
+        PhoneScreen previous = currentScreen;
+        currentScreen = screen;
+
+        if (previous == PhoneScreen.HOME && screen != PhoneScreen.HOME) {
+            stopHomeUpdaters();
+        }
+        if (screen == PhoneScreen.HOME && previous != PhoneScreen.HOME) {
+            startHomeUpdaters();
+            if (!BuildConfig.S3_MAILBOX_IMAGE_URL.isEmpty()) {
+                fetchMailboxImage(BuildConfig.S3_MAILBOX_IMAGE_URL);
+            }
+        }
+
+        if (previous == PhoneScreen.TOUR && screen != PhoneScreen.TOUR) {
+            tourContent.stopUpdating();
+        }
+        if (screen == PhoneScreen.TOUR && previous != PhoneScreen.TOUR) {
+            tourContent.startUpdating();
+        }
+
+        if (previous == PhoneScreen.TOUR_LIVE && screen != PhoneScreen.TOUR_LIVE) {
+            tourLiveContent.stopUpdating();
+        }
+        if (screen == PhoneScreen.TOUR_LIVE && previous != PhoneScreen.TOUR_LIVE) {
+            tourLiveContent.startUpdating();
+        }
+
+        homeContent.setVisibility(screen == PhoneScreen.HOME ? View.VISIBLE : View.GONE);
+        tourContent.setVisibility(screen == PhoneScreen.TOUR ? View.VISIBLE : View.GONE);
+        tourLiveContent.setVisibility(screen == PhoneScreen.TOUR_LIVE ? View.VISIBLE : View.GONE);
+
+        if (toolbar.getMenu() != null) {
+            toolbar.getMenu().findItem(R.id.menu_home).setChecked(screen == PhoneScreen.HOME);
+            toolbar.getMenu().findItem(R.id.menu_tour).setChecked(screen == PhoneScreen.TOUR);
+            toolbar.getMenu().findItem(R.id.menu_tour_live).setChecked(screen == PhoneScreen.TOUR_LIVE);
+        }
+
+        if (persist && prefs != null) {
+            prefs.edit().putString(PREF_PHONE_SCREEN, screen.name()).apply();
+        }
+    }
+
+    private PhoneScreen parsePhoneScreen(String saved) {
+        if (saved == null) {
+            return PhoneScreen.HOME;
+        }
+        try {
+            return PhoneScreen.valueOf(saved);
+        } catch (IllegalArgumentException e) {
+            return PhoneScreen.HOME;
+        }
+    }
+
+    private void startHomeUpdaters() {
+        mUpdateHandler.removeCallbacks(mImageUpdater);
+        mUpdateHandler.post(mImageUpdater);
+        mUpdateHandler.removeCallbacks(mDoorbellUpdater);
+        mUpdateHandler.post(mDoorbellUpdater);
+    }
+
+    private void stopHomeUpdaters() {
         mUpdateHandler.removeCallbacks(mImageUpdater);
         mUpdateHandler.removeCallbacks(mDoorbellUpdater);
     }
