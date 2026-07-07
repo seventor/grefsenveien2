@@ -106,7 +106,7 @@ public final class TourLiveView extends View {
         }
 
         if (liveData != null) {
-            TourLiveRenderer.draw(canvas, liveData, 0f, 0f, w, h);
+            TourLiveRenderer.draw(canvas, liveData, 0f, 0f, w, h, TourLiveRenderer.LayoutMode.PHONE);
             return;
         }
 

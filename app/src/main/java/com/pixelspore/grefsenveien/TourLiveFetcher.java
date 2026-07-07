@@ -68,7 +68,8 @@ final class TourLiveFetcher {
                 parseJerseys(root.optJSONArray("jerseys")),
                 parseTrackGroups(root),
                 parseTrackGaps(root),
-                parseFieldGroups(root));
+                parseFieldGroups(root),
+                parseMissingTelemetry(root.optJSONArray("missingTelemetry")));
     }
 
     private static List<TourLiveVirtualRider> parseVirtualStandings(@Nullable JSONArray array) {
@@ -85,6 +86,8 @@ final class TourLiveFetcher {
                     row.optInt("virtualRank", 0),
                     row.optString("rider", ""),
                     row.optBoolean("isNorwegian", false),
+                    row.optString("teamCode", ""),
+                    row.optString("natCode", ""),
                     row.optString("yesterdayGap", ""),
                     row.optString("virtualGap", ""),
                     row.optInt("rankChange", 0),
@@ -189,7 +192,10 @@ final class TourLiveFetcher {
                     }
                     names.add(new TourLiveDisplayName(
                             nameRow.optString("rider", ""),
-                            nameRow.optBoolean("isNorwegian", false)));
+                            nameRow.optBoolean("isNorwegian", false),
+                            nameRow.optString("teamCode", ""),
+                            nameRow.optString("natCode", ""),
+                            nameRow.optInt("gcRank", 0)));
                 }
             }
             String gapToPrev = row.optString("gapToPreviousGroupText", "");
@@ -202,6 +208,29 @@ final class TourLiveFetcher {
                     names));
         }
         return groups;
+    }
+
+    private static List<TourLiveMissingRider> parseMissingTelemetry(@Nullable JSONArray array) {
+        List<TourLiveMissingRider> riders = new ArrayList<>();
+        if (array == null) {
+            return riders;
+        }
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject row = array.optJSONObject(i);
+            if (row == null) {
+                continue;
+            }
+            int gcRank = row.has("gcRank") && !row.isNull("gcRank")
+                    ? row.optInt("gcRank", 0) : -1;
+            riders.add(new TourLiveMissingRider(
+                    row.optString("rider", ""),
+                    row.optBoolean("isNorwegian", false),
+                    row.optString("teamCode", ""),
+                    row.optString("natCode", ""),
+                    gcRank,
+                    row.optString("yesterdayGap", "")));
+        }
+        return riders;
     }
 
     private static String fetchJson() throws Exception {

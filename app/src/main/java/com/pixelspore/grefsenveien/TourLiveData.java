@@ -4,7 +4,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 final class TourLiveData {
@@ -21,6 +20,7 @@ final class TourLiveData {
     final List<TourLiveTrackGroup> trackGroups;
     final List<TourLiveTrackGap> trackGaps;
     final List<TourLiveFieldGroup> fieldGroups;
+    final List<TourLiveMissingRider> missingTelemetry;
 
     TourLiveData(int stage, int year, boolean simulated, int kmLeft, int progressPct,
             String avgSpeedKmh, String estimatedFinishLocal,
@@ -28,7 +28,8 @@ final class TourLiveData {
             @NonNull List<TourLiveJersey> jerseys,
             @NonNull List<TourLiveTrackGroup> trackGroups,
             @NonNull List<TourLiveTrackGap> trackGaps,
-            @NonNull List<TourLiveFieldGroup> fieldGroups) {
+            @NonNull List<TourLiveFieldGroup> fieldGroups,
+            @NonNull List<TourLiveMissingRider> missingTelemetry) {
         this.stage = stage;
         this.year = year;
         this.simulated = simulated;
@@ -41,6 +42,7 @@ final class TourLiveData {
         this.trackGroups = trackGroups;
         this.trackGaps = trackGaps;
         this.fieldGroups = fieldGroups;
+        this.missingTelemetry = missingTelemetry;
     }
 
     @NonNull
@@ -54,20 +56,29 @@ final class TourLiveVirtualRider {
     final int virtualRank;
     final String rider;
     final boolean isNorwegian;
+    final String teamCode;
+    final String natCode;
     final String yesterdayGap;
     final String virtualGap;
     final int rankChange;
     final boolean telemetryEstimated;
 
     TourLiveVirtualRider(int virtualRank, String rider, boolean isNorwegian,
+            String teamCode, String natCode,
             String yesterdayGap, String virtualGap, int rankChange, boolean telemetryEstimated) {
         this.virtualRank = virtualRank;
         this.rider = rider;
         this.isNorwegian = isNorwegian;
+        this.teamCode = teamCode;
+        this.natCode = natCode;
         this.yesterdayGap = yesterdayGap;
         this.virtualGap = virtualGap;
         this.rankChange = rankChange;
         this.telemetryEstimated = telemetryEstimated;
+    }
+
+    int previousVirtualRank() {
+        return virtualRank + rankChange;
     }
 }
 
@@ -134,9 +145,35 @@ final class TourLiveFieldGroup {
 final class TourLiveDisplayName {
     final String rider;
     final boolean isNorwegian;
+    final String teamCode;
+    final String natCode;
+    final int gcRank;
 
-    TourLiveDisplayName(String rider, boolean isNorwegian) {
+    TourLiveDisplayName(String rider, boolean isNorwegian,
+            String teamCode, String natCode, int gcRank) {
         this.rider = rider;
         this.isNorwegian = isNorwegian;
+        this.teamCode = teamCode;
+        this.natCode = natCode;
+        this.gcRank = gcRank;
+    }
+}
+
+final class TourLiveMissingRider {
+    final String rider;
+    final boolean isNorwegian;
+    final String teamCode;
+    final String natCode;
+    final int gcRank;
+    final String yesterdayGap;
+
+    TourLiveMissingRider(String rider, boolean isNorwegian, String teamCode, String natCode,
+            int gcRank, String yesterdayGap) {
+        this.rider = rider;
+        this.isNorwegian = isNorwegian;
+        this.teamCode = teamCode;
+        this.natCode = natCode;
+        this.gcRank = gcRank;
+        this.yesterdayGap = yesterdayGap;
     }
 }
