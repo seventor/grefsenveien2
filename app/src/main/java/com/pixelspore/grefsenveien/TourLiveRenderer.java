@@ -15,9 +15,10 @@ final class TourLiveRenderer {
     private static final int TOP_VIRTUAL = 10;
     private static final float LEFT_PANEL_FRACTION = 0.34f;
     private static final float PHONE_LEFT_PANEL_FRACTION = 0.42f;
-    private static final float PHONE_RIDER_SCALE = 1.22f;
-    private static final float PHONE_ROW_SCALE = 1.1f;
-    private static final float PHONE_FIELD_RIDER_SCALE = 1.2f;
+    private static final float CAR_FIELD_RIDER_SCALE = 1f;
+    private static final float PHONE_RIDER_SCALE = 1.48f;
+    private static final float PHONE_ROW_SCALE = 1.15f;
+    private static final float PHONE_FIELD_RIDER_SCALE = 1.42f;
     private static final String BIKE_ICON = "\uD83D\uDEB4";
     private static final int COLOR_YELLOW = 0xFFFFD200;
     private static final int COLOR_INK = 0xFF161616;
@@ -55,7 +56,7 @@ final class TourLiveRenderer {
                 return new LayoutConfig(PHONE_LEFT_PANEL_FRACTION, PHONE_RIDER_SCALE, PHONE_ROW_SCALE,
                         PHONE_FIELD_RIDER_SCALE);
             }
-            return new LayoutConfig(LEFT_PANEL_FRACTION, 1f, 1f, 1f);
+            return new LayoutConfig(LEFT_PANEL_FRACTION, 1f, 1f, CAR_FIELD_RIDER_SCALE);
         }
 
         float riderSize(float base, float scale) {
@@ -74,6 +75,128 @@ final class TourLiveRenderer {
             float fieldRowScale = fieldRiderScale > 1f ? rowScale * 1.08f : rowScale;
             return base * scale * fieldRowScale;
         }
+
+        float groupNameSize(float scale) {
+            return fieldRiderScale > 1f ? fieldRiderSize(17f, scale) : riderSize(19f, scale);
+        }
+
+        float groupMetaSize(float scale) {
+            return fieldRiderScale > 1f ? fieldRiderSize(14f, scale) : riderSize(17f, scale);
+        }
+
+        float groupNameLineHeight(float scale) {
+            return fieldRiderScale > 1f ? fieldRowHeight(30f, scale) : fieldRowHeight(22f, scale);
+        }
+
+        float groupNameGap(float scale) {
+            return fieldRiderScale > 1f ? 14f * scale * rowScale : 12f * scale;
+        }
+
+        float virtualRankSize(float scale) {
+            return riderSize(22f, scale);
+        }
+
+        float virtualBodySize(float scale) {
+            return riderSize(19f, scale);
+        }
+
+        float virtualMonoSize(float scale) {
+            return riderSize(17f, scale);
+        }
+    }
+
+    static final class RightPanelOptions {
+        final boolean showMissingTelemetry;
+        final boolean drawAllGroups;
+
+        RightPanelOptions(boolean showMissingTelemetry, boolean drawAllGroups) {
+            this.showMissingTelemetry = showMissingTelemetry;
+            this.drawAllGroups = drawAllGroups;
+        }
+
+        static RightPanelOptions forCar() {
+            return new RightPanelOptions(true, false);
+        }
+
+        static RightPanelOptions forPhone(boolean showMissingTelemetry) {
+            return new RightPanelOptions(showMissingTelemetry, true);
+        }
+    }
+
+    static float computeScale(float fullLayoutWidth) {
+        return fullLayoutWidth / 1200f;
+    }
+
+    static void drawLeftPanelOnly(@NonNull Canvas canvas, @NonNull TourLiveData data,
+            float left, float top, float right, float bottom, float fullLayoutWidth,
+            @NonNull LayoutMode mode) {
+        float scale = computeScale(fullLayoutWidth);
+        LayoutConfig layout = LayoutConfig.forMode(mode);
+        float padX = 20f * scale;
+        drawLeftPanel(canvas, data, left, top, right, bottom, padX, scale, layout);
+    }
+
+    static void drawRightPanelOnly(@NonNull Canvas canvas, @NonNull TourLiveData data,
+            float left, float top, float right, float bottom, float fullLayoutWidth,
+            @NonNull LayoutMode mode, @NonNull RightPanelOptions options) {
+        float scale = computeScale(fullLayoutWidth);
+        LayoutConfig layout = LayoutConfig.forMode(mode);
+        float padX = 20f * scale;
+        drawRightPanel(canvas, data, left, top, right, bottom, padX, scale, layout, options);
+    }
+
+    static boolean shouldShowMissingTelemetry(@NonNull TourLiveData data, float panelWidth,
+            float viewportHeight, float fullLayoutWidth, @NonNull LayoutMode mode) {
+        if (data.missingTelemetry.isEmpty() || viewportHeight <= 0f || panelWidth <= 0f) {
+            return false;
+        }
+        float scale = computeScale(fullLayoutWidth);
+        LayoutConfig layout = LayoutConfig.forMode(mode);
+        float padX = 20f * scale;
+        float contentWidth = panelWidth - padX * 2f;
+        float groupsTop = measureRightPanelGroupsTop(scale);
+        float availableForGroups = viewportHeight - groupsTop - padX;
+        float groupsH = estimateAllGroupsHeight(data, contentWidth, scale, layout);
+        return groupsH <= availableForGroups;
+    }
+
+    static float measureRightPanelContentHeight(@NonNull TourLiveData data, float panelWidth,
+            float fullLayoutWidth, @NonNull LayoutMode mode, boolean showMissingTelemetry) {
+        if (panelWidth <= 0f) {
+            return 0f;
+        }
+        float scale = computeScale(fullLayoutWidth);
+        LayoutConfig layout = LayoutConfig.forMode(mode);
+        float padX = 20f * scale;
+        float contentWidth = panelWidth - padX * 2f;
+        float y = measureRightPanelGroupsTop(scale);
+        y += estimateAllGroupsHeight(data, contentWidth, scale, layout);
+        if (showMissingTelemetry && !data.missingTelemetry.isEmpty()) {
+            y += padX * 0.5f + estimateMissingSectionHeight(data.missingTelemetry, scale, layout);
+        }
+        return y + padX;
+    }
+
+    private static float measureRightPanelGroupsTop(float scale) {
+        float padX = 20f * scale;
+        float headerSize = 16f * scale;
+        float headerY = padX + headerSize * 0.85f;
+        float trackTop = headerY + 10f * scale;
+        float trackH = 56f * scale;
+        return trackTop + trackH + 10f * scale;
+    }
+
+    private static float estimateAllGroupsHeight(@NonNull TourLiveData data, float contentWidth,
+            float scale, @NonNull LayoutConfig layout) {
+        float y = 0f;
+        for (int i = 0; i < data.fieldGroups.size(); i++) {
+            TourLiveFieldGroup group = data.fieldGroups.get(i);
+            if (i > 0 && group.gapToPreviousGroupText != null) {
+                y += 36f * scale + 6f * scale;
+            }
+            y += estimateGroupCardHeight(group, contentWidth, scale, layout) + 8f * scale;
+        }
+        return y;
     }
 
     static void draw(@NonNull Canvas canvas, @NonNull TourLiveData data,
@@ -96,7 +219,8 @@ final class TourLiveRenderer {
 
         canvas.drawColor(0xFFFFFFFF);
         drawLeftPanel(canvas, data, left, top, splitX, bottom, padX, scale, layout);
-        drawRightPanel(canvas, data, splitX, top, right, bottom, padX, scale, layout);
+        drawRightPanel(canvas, data, splitX, top, right, bottom, padX, scale, layout,
+                RightPanelOptions.forCar());
     }
 
     private static void drawLeftPanel(Canvas canvas, TourLiveData data,
@@ -470,7 +594,7 @@ final class TourLiveRenderer {
 
     private static void drawRightPanel(Canvas canvas, TourLiveData data,
             float left, float top, float right, float bottom, float padX, float scale,
-            LayoutConfig layout) {
+            LayoutConfig layout, RightPanelOptions options) {
         canvas.drawRect(left, top, right, bottom, paintColor(COLOR_PANEL_RIGHT));
 
         float contentLeft = left + padX;
@@ -484,27 +608,32 @@ final class TourLiveRenderer {
 
         float trackTop = headerY + 10f * scale;
         float trackH = 56f * scale;
-        drawFieldTrack(canvas, data, contentLeft, trackTop, contentRight, trackTop + trackH, scale);
+        drawFieldTrack(canvas, data, contentLeft, trackTop, contentRight, trackTop + trackH, scale, layout);
 
         float y = trackTop + trackH + 10f * scale;
         float missingTop = bottom - padX - estimateMissingSectionHeight(data.missingTelemetry, scale, layout);
-        float groupsBottom = missingTop - (data.missingTelemetry.isEmpty() ? 0f : padX * 0.5f);
+        float groupsBottom = options.drawAllGroups
+                ? Float.MAX_VALUE
+                : missingTop - (data.missingTelemetry.isEmpty() ? 0f : padX * 0.5f);
         for (int i = 0; i < data.fieldGroups.size(); i++) {
             TourLiveFieldGroup group = data.fieldGroups.get(i);
             if (i > 0 && group.gapToPreviousGroupText != null) {
                 y = drawGapBetween(canvas, group.gapToPreviousGroupText,
-                        contentLeft, y, contentRight, scale) + 6f * scale;
+                        contentLeft, y, contentRight, scale, layout) + 6f * scale;
             }
             boolean highlight = !group.jerseyCodes.isEmpty();
             float cardH = estimateGroupCardHeight(group, contentWidth, scale, layout);
-            if (y + cardH > groupsBottom) {
+            if (!options.drawAllGroups && y + cardH > groupsBottom) {
                 break;
             }
             y = drawGroupCard(canvas, group, contentLeft, y, contentRight, highlight, scale, layout) + 8f * scale;
         }
 
-        if (!data.missingTelemetry.isEmpty()) {
-            drawMissingTelemetry(canvas, data, contentLeft, missingTop, contentRight, bottom - padX, scale, layout);
+        if (options.showMissingTelemetry && !data.missingTelemetry.isEmpty()) {
+            float missingDrawTop = options.drawAllGroups ? y + padX * 0.5f : missingTop;
+            float missingDrawBottom = options.drawAllGroups ? Float.MAX_VALUE : bottom - padX;
+            drawMissingTelemetry(canvas, data, contentLeft, missingDrawTop, contentRight,
+                    missingDrawBottom, scale, layout);
         }
     }
 
@@ -611,7 +740,7 @@ final class TourLiveRenderer {
     }
 
     private static void drawFieldTrack(Canvas canvas, TourLiveData data,
-            float left, float top, float right, float bottom, float scale) {
+            float left, float top, float right, float bottom, float scale, LayoutConfig layout) {
         float lineY = top + (bottom - top) * 0.62f;
         Paint trackLine = new Paint();
         trackLine.setColor(0xFFCCCCCC);
@@ -619,7 +748,8 @@ final class TourLiveRenderer {
         canvas.drawLine(left, lineY, right, lineY, trackLine);
 
         float width = right - left;
-        Paint gapPaint = textPaint(COLOR_INK, 14f * scale, true);
+        float monoSize = layout.virtualMonoSize(scale);
+        Paint gapPaint = textPaint(COLOR_INK, monoSize, true);
         gapPaint.setTypeface(Typeface.MONOSPACE);
         for (TourLiveTrackGap gap : data.trackGaps) {
             float x = left + width * (gap.midPct / 100f);
@@ -627,8 +757,8 @@ final class TourLiveRenderer {
             canvas.drawText(text, x - gapPaint.measureText(text) / 2f, lineY - 12f * scale, gapPaint);
         }
 
-        Paint numPaint = textPaint(COLOR_INK, 12f * scale, true);
-        Paint bikePaint = textPaint(COLOR_INK, 16f * scale, false);
+        Paint numPaint = textPaint(COLOR_INK, layout.virtualRankSize(scale), true);
+        Paint bikePaint = textPaint(COLOR_INK, layout.virtualBodySize(scale), false);
         for (TourLiveTrackGroup group : data.trackGroups) {
             float x = left + width * (group.positionPct / 100f);
             String num = String.valueOf(group.number);
@@ -639,10 +769,11 @@ final class TourLiveRenderer {
     }
 
     private static float drawGapBetween(Canvas canvas, String gapText,
-            float left, float top, float right, float scale) {
+            float left, float top, float right, float scale, LayoutConfig layout) {
         float h = 36f * scale;
-        Paint arrow = textPaint(COLOR_MUTED, 14f * scale, false);
-        Paint gap = textPaint(COLOR_INK, 15f * scale, true);
+        float monoSize = layout.virtualMonoSize(scale);
+        Paint arrow = textPaint(COLOR_MUTED, monoSize, false);
+        Paint gap = textPaint(COLOR_INK, monoSize, true);
         gap.setTypeface(Typeface.MONOSPACE);
         float centerX = (left + right) / 2f;
         String text = formatRelativeGap(gapText);
@@ -667,7 +798,11 @@ final class TourLiveRenderer {
                 highlight ? 2.5f * scale : 1f * scale);
 
         float headerY = top + pad + 20f * scale;
-        Paint numPaint = textPaint(COLOR_INK, 20f * scale, true);
+        float rankSize = layout.virtualRankSize(scale);
+        float bodySize = layout.virtualBodySize(scale);
+        float monoSize = layout.virtualMonoSize(scale);
+
+        Paint numPaint = textPaint(COLOR_INK, rankSize, true);
         canvas.drawText(String.valueOf(group.number), left + pad, headerY, numPaint);
 
         float dotX = left + pad + numPaint.measureText(String.valueOf(group.number)) + 12f * scale;
@@ -680,13 +815,13 @@ final class TourLiveRenderer {
         }
 
         String gapDisplay = formatGroupGap(group.gapText);
-        Paint gapPaint = textPaint(COLOR_INK, 17f * scale, true);
+        Paint gapPaint = textPaint(COLOR_INK, monoSize, true);
         gapPaint.setTypeface(Typeface.MONOSPACE);
         float gapW = gapPaint.measureText(gapDisplay);
         canvas.drawText(gapDisplay, right - pad - gapW, headerY, gapPaint);
 
         String countText = group.riderCount + " ryttere";
-        Paint countPaint = textPaint(COLOR_INK, 17f * scale, false);
+        Paint countPaint = textPaint(COLOR_INK, bodySize, false);
         float countW = countPaint.measureText(countText);
         canvas.drawText(countText, right - pad - gapW - 14f * scale - countW, headerY, countPaint);
 
@@ -698,15 +833,15 @@ final class TourLiveRenderer {
 
     private static void drawWrappedNames(Canvas canvas, TourLiveFieldGroup group,
             float left, float top, float right, float pad, float scale, LayoutConfig layout) {
-        float nameSize = layout.fieldRiderSize(15f, scale);
-        float nameGap = 12f * scale;
-        float lineH = layout.fieldRowHeight(22f, scale);
+        float nameSize = layout.groupNameSize(scale);
+        float nameGap = layout.groupNameGap(scale);
+        float lineH = layout.groupNameLineHeight(scale);
         float x = left + pad;
         float y = top + lineH * 0.75f;
         float maxX = right - pad;
 
         Paint namePaint = textPaint(COLOR_INK, nameSize, true);
-        Paint metaPaint = textPaint(COLOR_MUTED, layout.fieldRiderSize(13f, scale), false);
+        Paint metaPaint = textPaint(COLOR_MUTED, layout.groupMetaSize(scale), false);
         for (TourLiveDisplayName name : group.displayNames) {
             namePaint.setColor(name.isNorwegian ? COLOR_NOR : COLOR_INK);
             String rider = name.rider;
@@ -746,13 +881,13 @@ final class TourLiveRenderer {
             LayoutConfig layout) {
         float pad = 16f * scale;
         float headerH = 36f * scale;
-        float nameSize = layout.fieldRiderSize(15f, scale);
-        float nameGap = 12f * scale;
-        float lineH = layout.fieldRowHeight(22f, scale);
+        float nameSize = layout.groupNameSize(scale);
+        float nameGap = layout.groupNameGap(scale);
+        float lineH = layout.groupNameLineHeight(scale);
         float contentWidth = width - pad * 2f;
 
         Paint namePaint = textPaint(COLOR_INK, nameSize, true);
-        Paint metaPaint = textPaint(COLOR_MUTED, layout.fieldRiderSize(13f, scale), false);
+        Paint metaPaint = textPaint(COLOR_MUTED, layout.groupMetaSize(scale), false);
         float x = 0f;
         int rows = 1;
         for (TourLiveDisplayName name : group.displayNames) {

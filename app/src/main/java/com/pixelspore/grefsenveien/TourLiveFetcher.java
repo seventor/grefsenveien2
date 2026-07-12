@@ -220,6 +220,13 @@ final class TourLiveFetcher {
             if (row == null) {
                 continue;
             }
+            if (!row.has("yesterdayGap") || row.isNull("yesterdayGap")) {
+                continue;
+            }
+            String yesterdayGap = row.optString("yesterdayGap", "");
+            if (yesterdayGap.isEmpty()) {
+                continue;
+            }
             int gcRank = row.has("gcRank") && !row.isNull("gcRank")
                     ? row.optInt("gcRank", 0) : -1;
             riders.add(new TourLiveMissingRider(
@@ -228,7 +235,7 @@ final class TourLiveFetcher {
                     row.optString("teamCode", ""),
                     row.optString("natCode", ""),
                     gcRank,
-                    row.optString("yesterdayGap", "")));
+                    yesterdayGap));
         }
         return riders;
     }
