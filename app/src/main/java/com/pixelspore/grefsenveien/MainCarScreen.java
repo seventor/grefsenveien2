@@ -1659,8 +1659,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private static final int HA_HISTORY_RETRY_DELAY_MS = 1_500;
     private static final String RAIN_WEEKLY_ENTITY_ID = "sensor.vaerstasjon_weekly_rain";
     private static final String RAIN_DAILY_ENTITY_ID = "sensor.vaerstasjon_daily_rain";
+    private static final String TEMP_ENTITY_ID = "sensor.vaerstasjon_temp";
     private static final int RAIN_WEEKS = 12;
     private static final int RAIN_HISTORY_DAYS = 91;
+    private static final int TEMP_MINMAX_DAYS = 60;
 
     @Nullable
     private String fetchHaHistoryJsonWithRetry(@NonNull String label, @NonNull String url) {
@@ -1874,49 +1876,56 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             }
 
             // 1b. Fetch 60d temp for diurnal average curve
-            long sixtyDaysAgo = now - 60L * 24 * 3600_000;
+            long sixtyDaysAgo = now - (long) TEMP_MINMAX_DAYS * 24 * 3600_000;
             try {
                 String avgTempUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
                         + isoFmt.format(new Date(sixtyDaysAgo))
-                        + "?filter_entity_id=sensor.vaerstasjon_temp"
+                        + "?filter_entity_id=" + TEMP_ENTITY_ID
                         + "&end_time=" + isoFmt.format(new Date(now));
                 String avgJson = fetchHaHistoryJsonWithRetry(
-                        "Temperature 60d average (sensor.vaerstasjon_temp)", avgTempUrl,
+                        "Temperature 60d average (" + TEMP_ENTITY_ID + ")", avgTempUrl,
                         HA_HISTORY_CONNECT_TIMEOUT_MS, HA_HISTORY_LONG_READ_TIMEOUT_MS);
                 if (avgJson != null) {
                     JSONArray outer = new JSONArray(avgJson);
                     if (outer.length() > 0) {
                         JSONArray states = outer.getJSONArray(0);
                         sixtyDayAvgTempPoints = computeSixtyDayHourlyAverage(states, sixtyDaysAgo);
-                        long thirtyDaysAgo = now - 30L * 24 * 3600_000;
-                        updateTempMinMax30d(computeDailyTempMinMax(states, thirtyDaysAgo, now));
                     } else {
                         Log.w("GrefsenveienApp",
-                                "Temperature 60d average (sensor.vaerstasjon_temp): empty response array");
+                                "Temperature 60d average (" + TEMP_ENTITY_ID + "): empty response array");
                     }
                 }
             } catch (Exception e) {
                 Log.w("GrefsenveienApp", "Failed to parse 60-day temperature average", e);
             }
 
-            if (tempMinMax30d.isEmpty()) {
-                try {
-                    long thirtyDaysAgo = now - 30L * 24 * 3600_000;
-                    String temp30Url = BuildConfig.HA_BASE_URL + "/api/history/period/"
-                            + isoFmt.format(new Date(thirtyDaysAgo))
-                            + "?filter_entity_id=sensor.vaerstasjon_temp"
+            // 1c. Fetch 60d daily min/max (long-term statistics; history only covers ~purge window)
+            try {
+                List<DailyTempRange> tempDays = fetchTempDailyMinMaxFromStatistics(
+                        sixtyDaysAgo, now, TEMP_MINMAX_DAYS);
+                if (tempDays == null || !hasAnyTempDayData(tempDays)) {
+                    Log.i("GrefsenveienApp",
+                            "Falling back to temperature history for daily min/max");
+                    String temp60Url = BuildConfig.HA_BASE_URL + "/api/history/period/"
+                            + isoFmt.format(new Date(sixtyDaysAgo))
+                            + "?filter_entity_id=" + TEMP_ENTITY_ID
                             + "&end_time=" + isoFmt.format(new Date(now));
-                    String temp30Json = fetchHaHistoryJsonWithRetry(
-                            "Temperature 30d min/max (sensor.vaerstasjon_temp)", temp30Url);
-                    if (temp30Json != null) {
-                        JSONArray outer30 = new JSONArray(temp30Json);
-                        if (outer30.length() > 0) {
-                            updateTempMinMax30d(computeDailyTempMinMax(outer30.getJSONArray(0), thirtyDaysAgo, now));
+                    String temp60Json = fetchHaHistoryJsonWithRetry(
+                            "Temperature 60d min/max (" + TEMP_ENTITY_ID + ")", temp60Url,
+                            HA_HISTORY_CONNECT_TIMEOUT_MS, HA_HISTORY_LONG_READ_TIMEOUT_MS);
+                    if (temp60Json != null) {
+                        JSONArray outer60 = new JSONArray(temp60Json);
+                        if (outer60.length() > 0) {
+                            tempDays = computeDailyTempMinMax(
+                                    outer60.getJSONArray(0), sixtyDaysAgo, now, TEMP_MINMAX_DAYS);
                         }
                     }
-                } catch (Exception e) {
-                    Log.w("GrefsenveienApp", "Failed to parse 30-day temperature min/max", e);
                 }
+                if (tempDays != null) {
+                    updateTempMinMax30d(tempDays);
+                }
+            } catch (Exception e) {
+                Log.w("GrefsenveienApp", "Failed to parse 60-day temperature min/max", e);
             }
 
             // 2. Fetch Rain 12 weeks (long-term statistics, fallback to recorder history)
@@ -2505,8 +2514,92 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
     }
 
+    private boolean hasAnyTempDayData(@NonNull List<DailyTempRange> days) {
+        for (DailyTempRange day : days) {
+            if (day.hasData) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Nullable
+    private List<DailyTempRange> fetchTempDailyMinMaxFromStatistics(long startMs, long endMs,
+            int dayCount) {
+        try {
+            SimpleDateFormat haTimeFmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+            haTimeFmt.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            JSONObject statsBody = new JSONObject();
+            statsBody.put("start_time", haTimeFmt.format(new Date(startMs)));
+            statsBody.put("end_time", haTimeFmt.format(new Date(endMs)));
+            JSONArray statIds = new JSONArray();
+            statIds.put(TEMP_ENTITY_ID);
+            statsBody.put("statistic_ids", statIds);
+            statsBody.put("period", "day");
+            JSONArray types = new JSONArray();
+            types.put("min");
+            types.put("max");
+            statsBody.put("types", types);
+
+            String statsJson = fetchHaServiceResponseJsonWithRetry(
+                    "Temperature daily min/max (" + TEMP_ENTITY_ID + ")",
+                    "recorder", "get_statistics", statsBody);
+            if (statsJson == null) {
+                return null;
+            }
+            return parseTempDailyMinMaxFromStatistics(statsJson, endMs, dayCount);
+        } catch (Exception e) {
+            Log.w("GrefsenveienApp", "Failed to fetch temperature daily statistics", e);
+            return null;
+        }
+    }
+
+    @NonNull
+    private List<DailyTempRange> parseTempDailyMinMaxFromStatistics(@NonNull String json,
+            long periodEndMs, int dayCount) throws org.json.JSONException {
+        SimpleDateFormat dayFmt = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+        dayFmt.setTimeZone(java.util.TimeZone.getDefault());
+        TreeMap<String, float[]> perDay = new TreeMap<>();
+
+        JSONObject root = new JSONObject(json);
+        JSONObject serviceResponse = root.getJSONObject("service_response");
+        JSONObject statistics = serviceResponse.getJSONObject("statistics");
+        if (statistics.has(TEMP_ENTITY_ID)) {
+            JSONArray periods = statistics.getJSONArray(TEMP_ENTITY_ID);
+            for (int i = 0; i < periods.length(); i++) {
+                JSONObject row = periods.getJSONObject(i);
+                if ((!row.has("min") || row.isNull("min")) && (!row.has("max") || row.isNull("max"))) {
+                    continue;
+                }
+                float min = row.has("min") && !row.isNull("min")
+                        ? (float) row.getDouble("min") : Float.NaN;
+                float max = row.has("max") && !row.isNull("max")
+                        ? (float) row.getDouble("max") : Float.NaN;
+                if (Float.isNaN(min) && Float.isNaN(max)) {
+                    continue;
+                }
+                if (Float.isNaN(min)) {
+                    min = max;
+                }
+                if (Float.isNaN(max)) {
+                    max = min;
+                }
+                long ts = parseHaDatetime(row.getString("start"));
+                String dayKey = dayFmt.format(new Date(ts));
+                float[] mm = perDay.get(dayKey);
+                if (mm == null) {
+                    perDay.put(dayKey, new float[]{min, max});
+                } else {
+                    mm[0] = Math.min(mm[0], min);
+                    mm[1] = Math.max(mm[1], max);
+                }
+            }
+        }
+        return buildDailyTempRangeList(perDay, periodEndMs, dayCount, dayFmt);
+    }
+
     private List<DailyTempRange> computeDailyTempMinMax(org.json.JSONArray states, long periodStartMs,
-            long periodEndMs) throws org.json.JSONException {
+            long periodEndMs, int dayCount) throws org.json.JSONException {
         SimpleDateFormat dayFmt = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
         dayFmt.setTimeZone(java.util.TimeZone.getDefault());
         TreeMap<String, float[]> perDay = new TreeMap<>();
@@ -2534,7 +2627,12 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             } catch (NumberFormatException ignored) {
             }
         }
+        return buildDailyTempRangeList(perDay, periodEndMs, dayCount, dayFmt);
+    }
 
+    @NonNull
+    private List<DailyTempRange> buildDailyTempRangeList(@NonNull TreeMap<String, float[]> perDay,
+            long periodEndMs, int dayCount, @NonNull SimpleDateFormat dayFmt) {
         Calendar endCal = Calendar.getInstance();
         endCal.setTimeZone(java.util.TimeZone.getDefault());
         endCal.setTimeInMillis(periodEndMs);
@@ -2544,7 +2642,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         endCal.set(Calendar.MILLISECOND, 0);
 
         List<DailyTempRange> result = new ArrayList<>();
-        for (int d = 29; d >= 0; d--) {
+        for (int d = dayCount - 1; d >= 0; d--) {
             Calendar dayCal = (Calendar) endCal.clone();
             dayCal.add(Calendar.DAY_OF_MONTH, -d);
             String dayKey = dayFmt.format(dayCal.getTime());
@@ -2572,7 +2670,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             float S, float wPad, float hdrOff, float gLeft, float gTopOff, float gBotOff,
             float tGW, float tGH, float xAxisYOffset, Paint gridP, Paint lblHdr, Paint lblValNormal,
             Paint lblP, Paint lblPy, float axisTxt, float baseTxt) {
-        c.drawText("TEMP SISTE 30D", left + wPad, top + hdrOff, lblHdr);
+        c.drawText("TEMP SISTE 60D", left + wPad, top + hdrOff, lblHdr);
         if (!Float.isNaN(temp30dPeriodMin) && !Float.isNaN(temp30dPeriodMax)) {
             String tHdr = String.format(Locale.getDefault(), "%.1f\u00b0\u2013%.1f\u00b0",
                     temp30dPeriodMin, temp30dPeriodMax);
@@ -2621,13 +2719,13 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
 
         int dayCount = tempMinMax30d.size();
-        float barGap = 1f;
-        float barW = (chartGW - (dayCount - 1) * barGap) / dayCount;
+        float barGap = Math.max(0.25f, 0.4f * S);
+        float barW = Math.max(0.8f, (chartGW - (dayCount - 1) * barGap) / dayCount);
         Paint barP = new Paint();
         barP.setAntiAlias(true);
         int colorTop = android.graphics.Color.parseColor("#6EC6F5");
         int colorBot = android.graphics.Color.parseColor("#1B6ADF");
-        float barRadius = Math.max(0.5f, 1f * S);
+        float barRadius = Math.max(0.4f, 0.7f * S);
 
         for (int i = 0; i < dayCount; i++) {
             DailyTempRange day = tempMinMax30d.get(i);
@@ -2647,7 +2745,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
 
         for (int i = 0; i < dayCount; i++) {
-            if (i % 5 != 0 && i != dayCount - 1) {
+            if (i % 4 != 0 && i != dayCount - 1) {
                 continue;
             }
             DailyTempRange day = tempMinMax30d.get(i);
@@ -3317,12 +3415,12 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         drawSunIcon(c, naRightX, naRow2IconY, naIconSize, naValP);
         c.drawText(solEnergyStr, naRightX + naIconSize + naIconGap, naRow2Baseline, naValP);
 
-        // === ROW 2: Lyn | Temp min/maks 30d | Jordfuktighet ===
+        // === ROW 2: Lyn | Temp min/maks 60d | Jordfuktighet ===
         drawWidgetCard(c, col1L, r2Top, col1R, r2Bot, S);
         drawLightningWidget(c, col1L, col1R, r2Top, r2Bot, S, wPad, hdrOff, gLeft, gTopOff,
                 tGW, tGH, xAxisYOffset, gridP, lblHdr, lblValNormal, lblP, lblPy, axisTxt, baseTxt);
 
-        // --- Temperatur min/maks 30 dager ---
+        // --- Temperatur min/maks 60 dager ---
         drawWidgetCard(c, col2L, r2Top, col2R, r2Bot, S);
         drawTempMinMax30dWidget(c, col2L, col2R, r2Top, r2Bot, S, wPad, hdrOff, gLeft, gTopOff, gBotOff,
                 tGW, tGH, xAxisYOffset, gridP, lblHdr, lblValNormal, lblP, lblPy, axisTxt, baseTxt);
