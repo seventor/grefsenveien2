@@ -62,6 +62,9 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private Bitmap weatherBitmap = null;
     private String weatherTimestamp = "";
     private int weatherBatteryPercent = -1;
+    private int weatherBatteryMinPercent = -1;
+    private int weatherBatteryMaxPercent = -1;
+    private static final String WEATHER_CAMERA_BATTERY_ENTITY = "sensor.tak_battery";
     private Bitmap homeBitmap = null;
     private String homeTimestamp = "";
     private SurfaceContainer mSurfaceContainer;
@@ -1446,15 +1449,92 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         return -1;
     }
 
+    /**
+     * Min/max battery for the weather camera since local midnight, from HA history.
+     * @return int[]{min, max}, or null if unavailable
+     */
+    @Nullable
+    private int[] fetchWeatherCameraBatteryRangeSinceMidnight() {
+        try {
+            long now = System.currentTimeMillis();
+            Calendar dayCal = Calendar.getInstance();
+            dayCal.setTimeInMillis(now);
+            dayCal.set(Calendar.HOUR_OF_DAY, 0);
+            dayCal.set(Calendar.MINUTE, 0);
+            dayCal.set(Calendar.SECOND, 0);
+            dayCal.set(Calendar.MILLISECOND, 0);
+            long midnight = dayCal.getTimeInMillis();
+
+            SimpleDateFormat isoFmt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+            isoFmt.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            String url = BuildConfig.HA_BASE_URL + "/api/history/period/"
+                    + isoFmt.format(new Date(midnight))
+                    + "?filter_entity_id=" + WEATHER_CAMERA_BATTERY_ENTITY
+                    + "&end_time=" + isoFmt.format(new Date(now))
+                    + "&minimal_response";
+            String json = fetchHaHistoryJsonWithRetry(
+                    "Weather camera battery history (" + WEATHER_CAMERA_BATTERY_ENTITY + ")", url);
+            if (json == null) {
+                return null;
+            }
+            JSONArray outer = new JSONArray(json);
+            if (outer.length() == 0) {
+                return null;
+            }
+            JSONArray states = outer.getJSONArray(0);
+            int min = Integer.MAX_VALUE;
+            int max = Integer.MIN_VALUE;
+            boolean found = false;
+            for (int i = 0; i < states.length(); i++) {
+                try {
+                    JSONObject obj = states.getJSONObject(i);
+                    int pct = Math.round(Float.parseFloat(obj.getString("state")));
+                    if (pct < 0 || pct > 100) {
+                        continue;
+                    }
+                    min = Math.min(min, pct);
+                    max = Math.max(max, pct);
+                    found = true;
+                } catch (Exception ignored) {
+                }
+            }
+            return found ? new int[]{min, max} : null;
+        } catch (Exception e) {
+            Log.w("GrefsenveienApp", "Failed to fetch weather camera battery range", e);
+            return null;
+        }
+    }
+
+    private void updateWeatherBatteryFromSources() {
+        int current = fetchWeatherCameraStatusSync();
+        if (current < 0) {
+            return;
+        }
+        int min = current;
+        int max = current;
+        int[] range = fetchWeatherCameraBatteryRangeSinceMidnight();
+        if (range != null) {
+            min = Math.min(range[0], current);
+            max = Math.max(range[1], current);
+        }
+        weatherBatteryPercent = current;
+        weatherBatteryMinPercent = min;
+        weatherBatteryMaxPercent = max;
+    }
+
     private void fetchWeatherCameraStatusAsync(boolean refreshHomeOnChange) {
         new Thread(() -> {
             int previous = weatherBatteryPercent;
-            int fetched = fetchWeatherCameraStatusSync();
-            if (fetched < 0) {
+            int previousMin = weatherBatteryMinPercent;
+            int previousMax = weatherBatteryMaxPercent;
+            updateWeatherBatteryFromSources();
+            if (weatherBatteryPercent < 0) {
                 return;
             }
-            weatherBatteryPercent = fetched;
-            if (refreshHomeOnChange && fetched != previous && getCurrentTabContent() == TabContent.DETALJER) {
+            boolean changed = weatherBatteryPercent != previous
+                    || weatherBatteryMinPercent != previousMin
+                    || weatherBatteryMaxPercent != previousMax;
+            if (refreshHomeOnChange && changed && getCurrentTabContent() == TabContent.DETALJER) {
                 mUpdateHandler.post(mHomeUpdater);
             }
         }).start();
@@ -2098,10 +2178,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             valBadMotionTime = fetchMotionHistory("binary_sensor.stort_bad_bevegelsessensor_occupancy", now, isoFmt);
             valVaskeromMotionTime = fetchMotionHistory("binary_sensor.vaskerom_bevegelsessensor_occupancy", now, isoFmt);
 
-            int batteryPercent = fetchWeatherCameraStatusSync();
-            if (batteryPercent >= 0) {
-                weatherBatteryPercent = batteryPercent;
-            }
+            updateWeatherBatteryFromSources();
 
             try {
                 // Bruk faktisk canvas-størrelse for å fylle hele skjermen
@@ -3283,9 +3360,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
         // === ROW 3–4: Camera widgets ===
         float r4Bot = r4Top + camRowH;
-        drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, col1L, r3Top, col2R, r3Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal, weatherBatteryPercent);
-        drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, col3L, r3Top, col3R, r3Bot, false, true, S, wPad, hdrOff, lblHdr, lblValNormal, -1);
-        drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, col3L, r4Top, col3R, r4Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal, -1);
+        drawCameraWidget(c, weatherBitmap, "V\u00c6R", weatherTimestamp, col1L, r3Top, col2R, r3Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal,
+                weatherBatteryPercent, weatherBatteryMinPercent, weatherBatteryMaxPercent);
+        drawCameraWidget(c, cameraBitmap, "G\u00c5RDSPLASSEN", imageTimestamp, col3L, r3Top, col3R, r3Bot, false, true, S, wPad, hdrOff, lblHdr, lblValNormal, -1, -1, -1);
+        drawCameraWidget(c, mailboxBitmap, "POSTKASSEN", mailboxTimestamp, col3L, r4Top, col3R, r4Bot, false, false, S, wPad, hdrOff, lblHdr, lblValNormal, -1, -1, -1);
         drawSunPathWidget(c, col2L, r4Top, col2R, r4Bot, S, wPad, hdrOff, lblHdr, lblValNormal, lblP, axisTxt);
         drawRoomTemperatureGrid(c, col1L, r4Top, colW, camRowH, S);
 
@@ -3669,7 +3747,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
 
     private void drawCameraWidget(android.graphics.Canvas canvas, Bitmap bmp, String title, String tsStr,
             float left, float top, float right, float bottom, boolean fitContain, boolean yardCropOffset,
-            float layoutS, float wPad, float hdrOff, Paint lblHdr, Paint lblValNormal, int batteryPercent) {
+            float layoutS, float wPad, float hdrOff, Paint lblHdr, Paint lblValNormal,
+            int batteryPercent, int batteryMinPercent, int batteryMaxPercent) {
         drawWidgetCard(canvas, left, top, right, bottom, layoutS);
         if (bmp != null) {
             android.graphics.Path clipPath = new android.graphics.Path();
@@ -3719,7 +3798,12 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
             String displayTs = (tsStr != null && !tsStr.isEmpty()) ? tsStr : "Live";
             String rightText = displayTs;
             if (batteryPercent >= 0) {
-                rightText = String.format(Locale.getDefault(), "%d%%  %s", batteryPercent, displayTs);
+                if (batteryMinPercent >= 0 && batteryMaxPercent >= 0) {
+                    rightText = String.format(Locale.getDefault(), "%d%% (%d%% - %d%%)  %s",
+                            batteryPercent, batteryMinPercent, batteryMaxPercent, displayTs);
+                } else {
+                    rightText = String.format(Locale.getDefault(), "%d%%  %s", batteryPercent, displayTs);
+                }
             }
             Paint.FontMetrics tsFm = lblValNormal.getFontMetrics();
             float tsBaselineY = bannerMidY - (tsFm.ascent + tsFm.descent) / 2f;
