@@ -1577,6 +1577,10 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private static final int HA_HISTORY_LONG_READ_TIMEOUT_MS = 60_000;
     private static final int HA_HISTORY_MAX_ATTEMPTS = 3;
     private static final int HA_HISTORY_RETRY_DELAY_MS = 1_500;
+    private static final String RAIN_WEEKLY_ENTITY_ID = "sensor.vaerstasjon_weekly_rain";
+    private static final String RAIN_DAILY_ENTITY_ID = "sensor.vaerstasjon_daily_rain";
+    private static final int RAIN_WEEKS = 12;
+    private static final int RAIN_HISTORY_DAYS = 91;
 
     @Nullable
     private String fetchHaHistoryJsonWithRetry(@NonNull String label, @NonNull String url) {
@@ -1597,6 +1601,75 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setConnectTimeout(connectTimeoutMs);
                 conn.setReadTimeout(readTimeoutMs);
+                conn.connect();
+                int responseCode = conn.getResponseCode();
+                if (responseCode == 200) {
+                    String json = new String(conn.getInputStream().readAllBytes(),
+                            java.nio.charset.StandardCharsets.UTF_8);
+                    if (attempt > 1) {
+                        Log.i("GrefsenveienApp", label + " succeeded on attempt " + attempt);
+                    }
+                    return json;
+                }
+                lastError = new IOException("HTTP " + responseCode);
+                Log.w("GrefsenveienApp", label + " failed: non-200 HTTP " + responseCode
+                        + " (attempt " + attempt + "/" + HA_HISTORY_MAX_ATTEMPTS + ")");
+            } catch (java.net.SocketTimeoutException e) {
+                lastError = e;
+                Log.w("GrefsenveienApp", label + " failed: timeout after "
+                        + connectTimeoutMs + "ms connect / "
+                        + readTimeoutMs + "ms read"
+                        + " (attempt " + attempt + "/" + HA_HISTORY_MAX_ATTEMPTS + ")");
+            } catch (Exception e) {
+                lastError = e;
+                Log.w("GrefsenveienApp", label + " failed: " + e.getClass().getSimpleName()
+                        + " - " + e.getMessage()
+                        + " (attempt " + attempt + "/" + HA_HISTORY_MAX_ATTEMPTS + ")");
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+            if (attempt < HA_HISTORY_MAX_ATTEMPTS) {
+                try {
+                    Thread.sleep(HA_HISTORY_RETRY_DELAY_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        if (lastError != null) {
+            Log.e("GrefsenveienApp", label + " gave up after " + HA_HISTORY_MAX_ATTEMPTS + " attempts", lastError);
+        }
+        return null;
+    }
+
+    @Nullable
+    private String fetchHaServiceResponseJsonWithRetry(@NonNull String label, @NonNull String domain,
+            @NonNull String service, @NonNull JSONObject body) {
+        return fetchHaServiceResponseJsonWithRetry(label, domain, service, body,
+                HA_HISTORY_CONNECT_TIMEOUT_MS, HA_HISTORY_READ_TIMEOUT_MS);
+    }
+
+    @Nullable
+    private String fetchHaServiceResponseJsonWithRetry(@NonNull String label, @NonNull String domain,
+            @NonNull String service, @NonNull JSONObject body,
+            int connectTimeoutMs, int readTimeoutMs) {
+        String urlStr = BuildConfig.HA_BASE_URL + "/api/services/" + domain + "/" + service + "?return_response";
+        Exception lastError = null;
+        for (int attempt = 1; attempt <= HA_HISTORY_MAX_ATTEMPTS; attempt++) {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(urlStr).openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Authorization", "Bearer " + BuildConfig.HA_TOKEN);
+                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setConnectTimeout(connectTimeoutMs);
+                conn.setReadTimeout(readTimeoutMs);
+                conn.setDoOutput(true);
+                byte[] payload = body.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                conn.getOutputStream().write(payload);
                 conn.connect();
                 int responseCode = conn.getResponseCode();
                 if (responseCode == 200) {
@@ -1766,59 +1839,52 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 }
             }
 
-            // 2. Fetch Rain 12 weeks (daily values aggregated per Monday week)
+            // 2. Fetch Rain 12 weeks (long-term statistics, fallback to recorder history)
             try {
-                String rainUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
-                        + isoFmt.format(new Date(now - 91L * 24 * 3600_000))
-                        + "?filter_entity_id=sensor.vaerstasjon_daily_rain"
-                        + "&end_time=" + isoFmt.format(new Date(now));
-                String json = fetchHaHistoryJsonWithRetry(
-                        "Rain history (sensor.vaerstasjon_daily_rain)", rainUrl);
-                if (json != null) {
-                    JSONArray outer = new JSONArray(json);
-                    if (outer.length() > 0) {
-                        JSONArray states = outer.getJSONArray(0);
-                        SimpleDateFormat dayFmt = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
-                        dayFmt.setTimeZone(java.util.TimeZone.getDefault());
-                        TreeMap<String, Float> maxPerDay = new TreeMap<>();
-                        for (int i = 0; i < states.length(); i++) {
-                            JSONObject obj = states.getJSONObject(i);
-                            try {
-                                float rain = Float.parseFloat(obj.getString("state"));
-                                long ts = parseIsoTimestamp(obj.getString("last_changed"));
-                                String dayKey = dayFmt.format(new Date(ts));
-                                Float cur = maxPerDay.get(dayKey);
-                                if (cur == null || rain > cur) maxPerDay.put(dayKey, rain);
-                            } catch (NumberFormatException ignored) {}
+                SimpleDateFormat dayFmt = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+                dayFmt.setTimeZone(java.util.TimeZone.getDefault());
+                SimpleDateFormat haTimeFmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+                haTimeFmt.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                long rainStartMs = now - (long) RAIN_HISTORY_DAYS * 24 * 3600_000;
+
+                TreeMap<Long, Float> rainPerWeek = fetchRainWeeklyStatistics(
+                        rainStartMs, now, RAIN_WEEKLY_ENTITY_ID, "max");
+                if (rainPerWeek == null || rainPerWeek.isEmpty()) {
+                    Log.i("GrefsenveienApp",
+                            "Weekly rain statistics empty, trying daily rain change statistics");
+                    rainPerWeek = fetchRainWeeklyStatistics(
+                            rainStartMs, now, RAIN_DAILY_ENTITY_ID, "change");
+                }
+
+                if (rainPerWeek == null || rainPerWeek.isEmpty()) {
+                    Log.i("GrefsenveienApp",
+                            "Falling back to rain history API (statistics unavailable or empty)");
+                    String rainUrl = BuildConfig.HA_BASE_URL + "/api/history/period/"
+                            + isoFmt.format(new Date(rainStartMs))
+                            + "?filter_entity_id=" + RAIN_DAILY_ENTITY_ID
+                            + "&end_time=" + isoFmt.format(new Date(now));
+                    String json = fetchHaHistoryJsonWithRetry(
+                            "Rain history (" + RAIN_DAILY_ENTITY_ID + ")", rainUrl,
+                            HA_HISTORY_CONNECT_TIMEOUT_MS, HA_HISTORY_LONG_READ_TIMEOUT_MS);
+                    if (json != null) {
+                        JSONArray outer = new JSONArray(json);
+                        if (outer.length() > 0) {
+                            TreeMap<String, Float> maxPerDay = parseRainDailyMaxFromHistory(
+                                    outer.getJSONArray(0), dayFmt);
+                            rainPerWeek = aggregateRainDailyToWeeks(maxPerDay, dayFmt);
+                        } else {
+                            Log.w("GrefsenveienApp",
+                                    "Rain history (" + RAIN_DAILY_ENTITY_ID + "): empty response array");
                         }
-                        TreeMap<Long, Float> rainPerWeek = new TreeMap<>();
-                        for (java.util.Map.Entry<String, Float> entry : maxPerDay.entrySet()) {
-                            try {
-                                Date day = dayFmt.parse(entry.getKey());
-                                if (day == null) continue;
-                                long weekMonday = getWeekMondayMillis(day.getTime());
-                                float prev = rainPerWeek.containsKey(weekMonday) ? rainPerWeek.get(weekMonday) : 0f;
-                                rainPerWeek.put(weekMonday, prev + entry.getValue());
-                            } catch (Exception ignored) {}
-                        }
-                        Float todayVal = maxPerDay.get(dayFmt.format(new Date(now)));
-                        if (todayVal != null) {
-                            todayRainMm = todayVal;
-                        }
-                        Calendar weekCal = Calendar.getInstance();
-                        weekCal.setTimeInMillis(getWeekMondayMillis(now));
-                        for (int i = 0; i < 12; i++) {
-                            Float val = rainPerWeek.get(weekCal.getTimeInMillis());
-                            rainByWeek[i] = val != null ? val : 0f;
-                            weekCal.add(Calendar.WEEK_OF_YEAR, -1);
-                        }
-                    } else {
-                        Log.w("GrefsenveienApp",
-                                "Rain history (sensor.vaerstasjon_daily_rain): empty response array");
                     }
                 }
+
+                if (rainPerWeek != null && !rainPerWeek.isEmpty()) {
+                    applyRainWeeklyToChart(rainPerWeek, now, rainByWeek);
+                }
+                todayRainMm = fetchSensorState(RAIN_DAILY_ENTITY_ID, todayRainMm);
             } catch (Exception e) {
-                Log.w("GrefsenveienApp", "Failed to parse rain history", e);
+                Log.w("GrefsenveienApp", "Failed to parse rain data", e);
             }
 
             // 2b. Fetch Lightning 7d
@@ -2135,6 +2201,122 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         int daysSinceMonday = (dayOfWeek + 5) % 7;
         cal.add(Calendar.DAY_OF_MONTH, -daysSinceMonday);
         return cal.getTimeInMillis();
+    }
+
+    @Nullable
+    private TreeMap<Long, Float> fetchRainWeeklyStatistics(long startMs, long endMs,
+            @NonNull String entityId, @NonNull String... statTypes) {
+        try {
+            SimpleDateFormat haTimeFmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+            haTimeFmt.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            JSONObject statsBody = new JSONObject();
+            statsBody.put("start_time", haTimeFmt.format(new Date(startMs)));
+            statsBody.put("end_time", haTimeFmt.format(new Date(endMs)));
+            JSONArray statIds = new JSONArray();
+            statIds.put(entityId);
+            statsBody.put("statistic_ids", statIds);
+            statsBody.put("period", "week");
+            JSONArray types = new JSONArray();
+            for (String statType : statTypes) {
+                types.put(statType);
+            }
+            statsBody.put("types", types);
+
+            String statsJson = fetchHaServiceResponseJsonWithRetry(
+                    "Rain statistics (" + entityId + ")", "recorder", "get_statistics", statsBody);
+            if (statsJson == null) {
+                return null;
+            }
+            TreeMap<Long, Float> rainPerWeek = parseRainWeeklyFromStatistics(
+                    statsJson, entityId, statTypes);
+            return rainPerWeek.isEmpty() ? null : rainPerWeek;
+        } catch (Exception e) {
+            Log.w("GrefsenveienApp", "Failed to fetch rain statistics for " + entityId, e);
+            return null;
+        }
+    }
+
+    @NonNull
+    private TreeMap<Long, Float> parseRainWeeklyFromStatistics(@NonNull String json,
+            @NonNull String entityId, @NonNull String[] statTypes) throws org.json.JSONException {
+        TreeMap<Long, Float> rainPerWeek = new TreeMap<>();
+        JSONObject root = new JSONObject(json);
+        JSONObject serviceResponse = root.getJSONObject("service_response");
+        JSONObject statistics = serviceResponse.getJSONObject("statistics");
+        if (!statistics.has(entityId)) {
+            return rainPerWeek;
+        }
+        JSONArray periods = statistics.getJSONArray(entityId);
+        for (int i = 0; i < periods.length(); i++) {
+            JSONObject row = periods.getJSONObject(i);
+            float rain = readRainStatValue(row, statTypes);
+            if (Float.isNaN(rain)) {
+                continue;
+            }
+            long weekMonday = getWeekMondayMillis(parseHaDatetime(row.getString("start")));
+            rainPerWeek.put(weekMonday, rain);
+        }
+        return rainPerWeek;
+    }
+
+    private float readRainStatValue(@NonNull JSONObject row, @NonNull String[] statTypes)
+            throws org.json.JSONException {
+        for (String statType : statTypes) {
+            if (row.has(statType) && !row.isNull(statType)) {
+                return Math.max(0f, (float) row.getDouble(statType));
+            }
+        }
+        return Float.NaN;
+    }
+
+    @NonNull
+    private TreeMap<Long, Float> aggregateRainDailyToWeeks(@NonNull TreeMap<String, Float> maxPerDay,
+            @NonNull SimpleDateFormat dayFmt) {
+        TreeMap<Long, Float> rainPerWeek = new TreeMap<>();
+        for (java.util.Map.Entry<String, Float> entry : maxPerDay.entrySet()) {
+            try {
+                Date day = dayFmt.parse(entry.getKey());
+                if (day == null) {
+                    continue;
+                }
+                long weekMonday = getWeekMondayMillis(day.getTime());
+                float prev = rainPerWeek.containsKey(weekMonday) ? rainPerWeek.get(weekMonday) : 0f;
+                rainPerWeek.put(weekMonday, prev + entry.getValue());
+            } catch (Exception ignored) {
+            }
+        }
+        return rainPerWeek;
+    }
+
+    private void applyRainWeeklyToChart(@NonNull TreeMap<Long, Float> rainPerWeek, long now,
+            @NonNull float[] rainByWeek) {
+        Calendar weekCal = Calendar.getInstance();
+        weekCal.setTimeInMillis(getWeekMondayMillis(now));
+        for (int i = 0; i < RAIN_WEEKS && i < rainByWeek.length; i++) {
+            Float val = rainPerWeek.get(weekCal.getTimeInMillis());
+            rainByWeek[i] = val != null ? val : 0f;
+            weekCal.add(Calendar.WEEK_OF_YEAR, -1);
+        }
+    }
+
+    @NonNull
+    private TreeMap<String, Float> parseRainDailyMaxFromHistory(@NonNull JSONArray states,
+            @NonNull SimpleDateFormat dayFmt) {
+        TreeMap<String, Float> maxPerDay = new TreeMap<>();
+        for (int i = 0; i < states.length(); i++) {
+            try {
+                JSONObject obj = states.getJSONObject(i);
+                float rain = Float.parseFloat(obj.getString("state"));
+                long ts = parseIsoTimestamp(obj.getString("last_changed"));
+                String dayKey = dayFmt.format(new Date(ts));
+                Float cur = maxPerDay.get(dayKey);
+                if (cur == null || rain > cur) {
+                    maxPerDay.put(dayKey, rain);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return maxPerDay;
     }
 
     private String formatRainWeekLabel(Calendar cal) {
@@ -2966,7 +3148,7 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                         android.graphics.Color.parseColor("#4FA5F7"),
                         android.graphics.Shader.TileMode.CLAMP));
                 c.drawRoundRect(bCX - bW / 2f, bT, bCX + bW / 2f, r7Base, barRadius, barRadius, barP);
-                String mmStr = String.format(Locale.getDefault(), "%.1f", rainVal);
+                String mmStr = String.format(Locale.getDefault(), "%d", Math.round(rainVal));
                 android.graphics.Paint.FontMetrics mmFm = mmLblP.getFontMetrics();
                 float mmY = bT - Math.max(4f * S, mmFm.descent + 2f * S);
                 c.drawText(mmStr, bCX, mmY, mmLblP);
