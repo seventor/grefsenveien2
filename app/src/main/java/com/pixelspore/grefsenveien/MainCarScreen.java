@@ -134,6 +134,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
     private float sunElevation = 0f;
     private long sunNextRisingMs = 0L;
     private long sunNextSettingMs = 0L;
+    /** Grefsenveien / Oslo – used to compute sunrise/sunset azimuth for the SOL arc. */
+    private static final double HOME_LATITUDE = 59.9493;
 
     private static final class DailyTempRange {
         final int dayOfMonth;
@@ -2841,6 +2843,81 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         c.drawText("lyn", countCenterX, countY + Math.max(18f, 24f * S), countLblP);
     }
 
+    /**
+     * Sunrise/sunset azimuth for today at home (degrees from north, clockwise).
+     * Index 0 = sunrise, 1 = sunset.
+     */
+    @NonNull
+    private float[] computeTodaySunriseSunsetAzimuth(long nowMs) {
+        double omega = computeSolarHourAngleRad(nowMs);
+        double lat = Math.toRadians(HOME_LATITUDE);
+        double decl = computeSolarDeclinationRad(nowMs);
+        float riseAz = (float) solarAzimuthDegrees(lat, decl, -omega);
+        float setAz = (float) solarAzimuthDegrees(lat, decl, omega);
+        return new float[]{riseAz, setAz};
+    }
+
+    private double computeSolarDeclinationRad(long nowMs) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTimeInMillis(nowMs);
+        int dayOfYear = cal.get(Calendar.DAY_OF_YEAR);
+        return Math.toRadians(23.44 * Math.sin(Math.toRadians(360.0 / 365.0 * (dayOfYear - 81))));
+    }
+
+    /** Hour angle at sunrise/sunset (radians, absolute value). */
+    private double computeSolarHourAngleRad(long nowMs) {
+        double lat = Math.toRadians(HOME_LATITUDE);
+        double decl = computeSolarDeclinationRad(nowMs);
+        double cosOmega = -Math.tan(lat) * Math.tan(decl);
+        cosOmega = Math.max(-1.0, Math.min(1.0, cosOmega));
+        return Math.acos(cosOmega);
+    }
+
+    /** Daylight duration in milliseconds for the local calendar day of nowMs. */
+    private long computeDayLengthMs(long nowMs) {
+        double omegaDeg = Math.toDegrees(computeSolarHourAngleRad(nowMs));
+        return Math.round(2.0 * omegaDeg / 15.0 * 3_600_000.0);
+    }
+
+    private String formatDayLengthHm(long durationMs) {
+        long totalMin = Math.max(0L, Math.round(durationMs / 60_000.0));
+        long hours = totalMin / 60L;
+        long mins = totalMin % 60L;
+        return String.format(Locale.getDefault(), "%dt %02dm", hours, mins);
+    }
+
+    private String formatDayLengthDelta(long deltaMs) {
+        long totalMin = Math.round(Math.abs(deltaMs) / 60_000.0);
+        if (totalMin <= 0L) {
+            return "\u00b10m";
+        }
+        String sign = deltaMs > 0L ? "+" : "\u2212";
+        if (totalMin >= 60L) {
+            return sign + (totalMin / 60L) + "t " + String.format(Locale.getDefault(), "%02dm", totalMin % 60L);
+        }
+        return sign + totalMin + "m";
+    }
+
+    /** Solar azimuth in degrees [0, 360) from north, clockwise. */
+    private double solarAzimuthDegrees(double latRad, double declRad, double hourAngleRad) {
+        double sinAz = -Math.cos(declRad) * Math.sin(hourAngleRad);
+        double cosAz = Math.sin(declRad) * Math.cos(latRad)
+                - Math.cos(declRad) * Math.sin(latRad) * Math.cos(hourAngleRad);
+        double az = Math.toDegrees(Math.atan2(sinAz, cosAz));
+        if (az < 0.0) {
+            az += 360.0;
+        }
+        return az;
+    }
+
+    private float normalizeDegrees(float deg) {
+        float d = deg % 360f;
+        if (d < 0f) {
+            d += 360f;
+        }
+        return d;
+    }
+
     private void drawSunPathWidget(android.graphics.Canvas c, float left, float top, float right, float bottom,
             float S, float wPad, float hdrOff, Paint lblHdr, Paint lblValNormal, Paint lblP, float axisTxt) {
         drawWidgetCard(c, left, top, right, bottom, S);
@@ -2850,18 +2927,75 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
                 sunElevation, sunAzimuth);
         c.drawText(posStr, right - wPad - lblValNormal.measureText(posStr), top + hdrOff, lblValNormal);
 
+        float[] riseSetAz = computeTodaySunriseSunsetAzimuth(System.currentTimeMillis());
+        float riseAz = riseSetAz[0];
+        float setAz = riseSetAz[1];
+        float rawSpan = normalizeDegrees(setAz - riseAz);
+        int upDeg = Math.round(rawSpan);
+        if (upDeg <= 0) {
+            upDeg = 360;
+        }
+        if (upDeg > 360) {
+            upDeg = 360;
+        }
+        int downDeg = 360 - upDeg;
+
+        // Key stats: share of the 360° day the sun is above vs below the horizon
+        Paint statsP = new Paint(lblP);
+        statsP.setTextSize(Math.max(11f, axisTxt * 0.95f));
+        statsP.setColor(android.graphics.Color.parseColor("#C5D0DC"));
+        Paint statsMutedP = new Paint(statsP);
+        statsMutedP.setColor(android.graphics.Color.parseColor("#8E9AA8"));
+        float statsY = top + hdrOff + Math.max(14f, axisTxt * 1.15f);
+        String upStr = String.format(Locale.getDefault(), "Oppe %d\u00b0", upDeg);
+        String downStr = String.format(Locale.getDefault(), "Nede %d\u00b0", downDeg);
+        c.drawText(upStr, left + wPad, statsY, statsP);
+        c.drawText(downStr, right - wPad - statsMutedP.measureText(downStr), statsY, statsMutedP);
+
         float timeBlockH = axisTxt * 2.4f;
-        float arcBase = bottom - wPad - timeBlockH;
-        float contentTop = top + hdrOff + Math.max(6f, 8f * S);
-        float arcLeft = left + wPad * 1.2f;
-        float arcRight = right - wPad * 1.2f;
-        float arcCx = (arcLeft + arcRight) / 2f;
-        float maxRByWidth = (arcRight - arcLeft) / 2f;
-        float maxRByHeight = arcBase - contentTop - Math.max(4f, 6f * S);
-        float arcR = Math.min(maxRByWidth, Math.max(0f, maxRByHeight));
+        float labelPad = Math.max(12f, axisTxt * 1.25f);
+        float horizonY = bottom - wPad - timeBlockH;
+        float contentTop = statsY + Math.max(6f, 8f * S);
+        float plotLeft = left + wPad * 1.2f;
+        float plotRight = right - wPad * 1.2f;
+        float plotCx = (plotLeft + plotRight) / 2f;
+        // Shrink arc to leave room for compass degree labels outside the stroke
+        float maxHalfWidth = Math.max(8f, (plotRight - plotLeft) / 2f - labelPad);
+        float maxArcHeight = Math.max(8f, horizonY - contentTop - labelPad * 0.85f);
+
+        float span = Math.max(25f, Math.min(335f, rawSpan));
+        double halfSpanRad = Math.toRadians(span / 2.0);
+        double sinHalf = Math.sin(halfSpanRad);
+        double cosHalf = Math.cos(halfSpanRad);
+        if (sinHalf < 0.05) {
+            sinHalf = 0.05;
+        }
+
+        float rFromWidth = (float) (maxHalfWidth / sinHalf);
+        float rFromHeight = (float) (maxArcHeight / Math.max(0.05, 1.0 - cosHalf));
+        float arcR = Math.min(rFromWidth, rFromHeight);
+        if (arcR < 8f) {
+            arcR = 8f;
+        }
+        float halfWidth = (float) (arcR * sinHalf);
+        float arcCx = plotCx;
+        float arcCy = horizonY + (float) (arcR * cosHalf);
 
         android.graphics.RectF arcOval = new android.graphics.RectF(
-                arcCx - arcR, arcBase - arcR, arcCx + arcR, arcBase + arcR);
+                arcCx - arcR, arcCy - arcR, arcCx + arcR, arcCy + arcR);
+
+        float leftAngle = normalizeDegrees((float) Math.toDegrees(Math.atan2(horizonY - arcCy, -halfWidth)));
+        float rightAngle = normalizeDegrees((float) Math.toDegrees(Math.atan2(horizonY - arcCy, halfWidth)));
+        float sweep = normalizeDegrees(rightAngle - leftAngle);
+        float midAngle = normalizeDegrees(leftAngle + sweep / 2f);
+        float distToTop = Math.min(normalizeDegrees(midAngle - 270f), normalizeDegrees(270f - midAngle));
+        if (distToTop > 90f) {
+            sweep = sweep - 360f;
+        }
+        float nightSweep = (sweep >= 0f) ? (sweep - 360f) : (sweep + 360f);
+
+        float chordLeft = arcCx - halfWidth;
+        float chordRight = arcCx + halfWidth;
 
         c.save();
         android.graphics.Path clipPath = new android.graphics.Path();
@@ -2870,22 +3004,32 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         c.clipPath(clipPath);
 
         Path fillPath = new Path();
-        fillPath.addArc(arcOval, 180f, 180f);
-        fillPath.lineTo(arcRight, arcBase);
-        fillPath.lineTo(arcLeft, arcBase);
+        fillPath.moveTo(chordLeft, horizonY);
+        fillPath.arcTo(arcOval, leftAngle, sweep, false);
         fillPath.close();
         Paint fillP = new Paint();
         fillP.setAntiAlias(true);
         fillP.setStyle(Paint.Style.FILL);
+        float fillTopY = Math.min(arcCy - arcR, horizonY - arcR * 0.2f);
         fillP.setShader(new android.graphics.LinearGradient(
-                0f, arcBase - arcR, 0f, arcBase,
+                0f, fillTopY, 0f, horizonY,
                 android.graphics.Color.parseColor("#1F2A3D"),
                 android.graphics.Color.parseColor("#10141C"),
                 android.graphics.Shader.TileMode.CLAMP));
         c.drawPath(fillPath, fillP);
 
+        Path nightPath = new Path();
+        nightPath.addArc(arcOval, rightAngle, nightSweep);
+        Paint nightStrokeP = new Paint();
+        nightStrokeP.setAntiAlias(true);
+        nightStrokeP.setStyle(Paint.Style.STROKE);
+        nightStrokeP.setStrokeWidth(Math.max(1.5f, 2f * S));
+        nightStrokeP.setStrokeCap(Paint.Cap.ROUND);
+        nightStrokeP.setColor(android.graphics.Color.parseColor("#2A3340"));
+        c.drawPath(nightPath, nightStrokeP);
+
         Path arcPath = new Path();
-        arcPath.addArc(arcOval, 180f, 180f);
+        arcPath.addArc(arcOval, leftAngle, sweep);
         Paint arcStrokeP = new Paint();
         arcStrokeP.setAntiAlias(true);
         arcStrokeP.setStyle(Paint.Style.STROKE);
@@ -2901,34 +3045,70 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         tickP.setStrokeCap(Paint.Cap.ROUND);
         tickP.setColor(android.graphics.Color.parseColor("#5C6A7D"));
         float tickLen = Math.max(3f, 5f * S);
-        for (int deg = 180; deg <= 360; deg += 10) {
-            double rad = Math.toRadians(deg);
+        int tickCount = Math.max(2, Math.round(Math.abs(sweep) / 10f));
+        for (int i = 0; i <= tickCount; i++) {
+            float ang = leftAngle + sweep * (i / (float) tickCount);
+            double rad = Math.toRadians(ang);
             float cos = (float) Math.cos(rad);
             float sin = (float) Math.sin(rad);
             float x1 = arcCx + arcR * cos;
-            float y1 = arcBase + arcR * sin;
+            float y1 = arcCy + arcR * sin;
             c.drawLine(x1, y1, x1 + cos * tickLen, y1 + sin * tickLen, tickP);
         }
 
         Paint horizonP = new Paint();
         horizonP.setColor(android.graphics.Color.parseColor("#222633"));
         horizonP.setStrokeWidth(Math.max(1f, 1.5f * S));
-        c.drawLine(arcLeft, arcBase, arcRight, arcBase, horizonP);
+        c.drawLine(Math.min(plotLeft, chordLeft), horizonY, Math.max(plotRight, chordRight), horizonY, horizonP);
 
-        float az = sunAzimuth;
-        while (az < 0f) az += 360f;
-        while (az >= 360f) az -= 360f;
-        float t = (az - 90f) / 180f;
-        t = Math.max(0f, Math.min(1f, t));
-        float thetaDeg = 180f + t * 180f;
-        double thetaRad = Math.toRadians(thetaDeg);
-        float onArcX = arcCx + arcR * (float) Math.cos(thetaRad);
-        float onArcY = arcBase + arcR * (float) Math.sin(thetaRad);
+        // Compass / degree labels on the daylight arc (no Nord – it sits below the horizon)
+        Paint azLblP = new Paint(lblP);
+        azLblP.setTextSize(Math.max(9f, axisTxt * 0.72f));
+        azLblP.setTextAlign(Paint.Align.CENTER);
+        azLblP.setColor(android.graphics.Color.parseColor("#8E9AA8"));
+        Paint azCardinalP = new Paint(azLblP);
+        azCardinalP.setColor(android.graphics.Color.parseColor("#D0D7E0"));
+        azCardinalP.setTextSize(Math.max(10f, axisTxt * 0.78f));
+        float labelR = arcR + Math.max(9f, labelPad * 0.72f);
+        android.graphics.Paint.FontMetrics azFm = azLblP.getFontMetrics();
+        float azTextOffsetY = -(azFm.ascent + azFm.descent) / 2f;
+        int[] labelAzimuths = {45, 90, 135, 180, 225, 270, 315};
+        String[] labelNames = {null, "\u00d8", null, "S", null, "V", null};
+        for (int i = 0; i < labelAzimuths.length; i++) {
+            float labelAz = labelAzimuths[i];
+            float alongDay = normalizeDegrees(labelAz - riseAz);
+            if (alongDay > span + 0.8f) {
+                continue;
+            }
+            float t = Math.max(0f, Math.min(1f, alongDay / Math.max(1f, span)));
+            float thetaDeg = leftAngle + sweep * t;
+            double rad = Math.toRadians(thetaDeg);
+            float lx = arcCx + labelR * (float) Math.cos(rad);
+            float ly = arcCy + labelR * (float) Math.sin(rad);
+            if (lx < left + 2f || lx > right - 2f || ly < top + hdrOff || ly > bottom - timeBlockH * 0.35f) {
+                continue;
+            }
+            String text;
+            Paint useP;
+            if (labelNames[i] != null) {
+                text = String.format(Locale.getDefault(), "%s %d\u00b0", labelNames[i], labelAzimuths[i]);
+                useP = azCardinalP;
+            } else {
+                text = String.format(Locale.getDefault(), "%d\u00b0", labelAzimuths[i]);
+                useP = azLblP;
+            }
+            c.drawText(text, lx, ly + azTextOffsetY, useP);
+        }
 
-        if (sunElevation >= 0f) {
-            float sunX = onArcX;
-            float sunY = onArcY;
-            float sunSize = Math.max(18f, 22f * S);
+        float az = normalizeDegrees(sunAzimuth);
+        float along = normalizeDegrees(az - riseAz);
+        if (along <= span + 0.5f && sunElevation >= 0f) {
+            float t = Math.max(0f, Math.min(1f, along / span));
+            float thetaDeg = leftAngle + sweep * t;
+            double thetaRad = Math.toRadians(thetaDeg);
+            float sunX = arcCx + arcR * (float) Math.cos(thetaRad);
+            float sunY = arcCy + arcR * (float) Math.sin(thetaRad);
+            float sunSize = Math.max(16f, 20f * S);
 
             Paint outerGlowP = new Paint();
             outerGlowP.setAntiAlias(true);
@@ -2955,6 +3135,24 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         }
         c.restore();
 
+        // Day length + change vs yesterday, left of the arc
+        long nowMs = System.currentTimeMillis();
+        long todayLenMs = computeDayLengthMs(nowMs);
+        long yesterdayLenMs = computeDayLengthMs(nowMs - 24L * 3_600_000L);
+        String dayLenStr = formatDayLengthHm(todayLenMs);
+        String dayDeltaStr = formatDayLengthDelta(todayLenMs - yesterdayLenMs);
+        Paint dayLenP = new Paint(lblP);
+        dayLenP.setTextSize(Math.max(11f, axisTxt * 0.92f));
+        dayLenP.setColor(android.graphics.Color.parseColor("#C5D0DC"));
+        dayLenP.setTextAlign(Paint.Align.LEFT);
+        Paint dayDeltaP = new Paint(dayLenP);
+        dayDeltaP.setTextSize(Math.max(10f, axisTxt * 0.78f));
+        dayDeltaP.setColor(android.graphics.Color.parseColor("#8E9AA8"));
+        float dayLenX = left + wPad;
+        float dayLenY = contentTop + (horizonY - contentTop) * 0.42f;
+        c.drawText(dayLenStr, dayLenX, dayLenY, dayLenP);
+        c.drawText(dayDeltaStr, dayLenX, dayLenY + Math.max(14f, axisTxt * 1.05f), dayDeltaP);
+
         Paint timeP = new Paint(lblP);
         timeP.setTextSize(axisTxt);
         Paint timeLblP = new Paint(lblP);
@@ -2966,11 +3164,11 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         String setLbl = "Ned";
         String riseStr = formatSunTime(sunNextRisingMs);
         String setStr = formatSunTime(sunNextSettingMs);
-        c.drawText(riseLbl, arcLeft, timeY - axisTxt * 1.15f, timeLblP);
-        c.drawText(riseStr, arcLeft, timeY, timeP);
+        c.drawText(riseLbl, plotLeft, timeY - axisTxt * 1.15f, timeLblP);
+        c.drawText(riseStr, plotLeft, timeY, timeP);
         float setTextW = timeP.measureText(setStr);
-        c.drawText(setLbl, arcRight - timeLblP.measureText(setLbl), timeY - axisTxt * 1.15f, timeLblP);
-        c.drawText(setStr, arcRight - setTextW, timeY, timeP);
+        c.drawText(setLbl, plotRight - timeLblP.measureText(setLbl), timeY - axisTxt * 1.15f, timeLblP);
+        c.drawText(setStr, plotRight - setTextW, timeY, timeP);
     }
 
     private List<float[]> bucketTempPointsHourly(List<float[]> raw) {
