@@ -1,22 +1,30 @@
 # Automatisk deploy til Google Play Internal Testing
 
-Hver push til `master` bygger en signert release (`.aab`) og publiserer den direkte til **Internal testing**-sporet i Google Play.
+Hver push til `master` bygger signerte release-AAB-er for telefon og Wear OS, og publiserer dem til **Internal testing** i Google Play (samme listing / `com.pixelspore.grefsenveien`).
 
 Workflow-fil: [`.github/workflows/play-internal-release.yml`](.github/workflows/play-internal-release.yml)
 
 ## Slik fungerer det
 
 1. GitHub Actions sjekker ut koden
-2. Gradle bygger `:app:bundleRelease` (inkl. Wear OS-modulen)
-3. `versionCode` settes til `GITHUB_RUN_NUMBER + 16`
-4. `versionName` settes til `2.13.<run-nummer>` (f.eks. `2.13.42`)
-5. AAB lastes opp til **internal**-sporet med status **completed**
+2. Gradle bygger `:app:bundleRelease` og `:wear:bundleRelease`
+3. Telefon-`versionCode` settes til `GITHUB_RUN_NUMBER + 16`
+4. Wear-`versionCode` settes til telefonkoden + `1000000` (må være unik i samme listing)
+5. `versionName` settes til `2.13.<run-nummer>` for begge (f.eks. `2.13.42`)
+6. Telefon-AAB lastes opp til **internal**
+7. Wear-AAB lastes opp til **wear:internal**
 
 Release-builden bruker pakkenavn `com.pixelspore.grefsenveien` (uten `.debug`). Lokal `installDebug` bruker `com.pixelspore.grefsenveien.debug`, så debug og Play-versjon kan være installert samtidig.
 
 ## Forutsetninger i Google Play Console
 
-Appen må allerede være opprettet i Play Console med et aktivt **Internal testing**-spor (som du har i dag).
+Appen må allerede være opprettet i Play Console med aktive **Internal testing**-spor for både telefon og Wear OS.
+
+I Play Console:
+
+1. Aktiver **Wear OS**-form factor under appens avanserte innstillinger / form factors
+2. Opprett/bekreft et **Internal testing**-spor under Wear OS-utgivelser
+3. Fyll inn nødvendige Wear-ressurser (skjermbilder osv.) før første Wear-release kan fullføres
 
 Service account må ha tilgang til å laste opp releases. Minimum:
 
@@ -96,14 +104,15 @@ Når secrets er på plass:
 git push origin master
 ```
 
-Følg bygget under **Actions** i GitHub. Ved suksess finner du den nye versjonen i Play Console under **Internal testing**.
+Følg bygget under **Actions** i GitHub. Ved suksess finner du den nye telefon-versjonen under **Internal testing**, og Wear-versjonen under Wear OS **Internal testing**.
 
 ## Feilsøking
 
 | Problem | Løsning |
 |---------|---------|
 | `Only releases with status draft may be created on draft app` | Fullfør alle obligatoriske skjemaer i Play Console, eller sett midlertidig `status: draft` i workflow-filen |
-| `Version code X has already been used` | Øk grunnverdien `16` i workflow-filen, eller bump `versionCode` i `app/build.gradle` |
+| `Version code X has already been used` | Øk grunnverdien `16` i workflow-filen, eller bump `versionCode` i `app/build.gradle` / `wear/build.gradle` |
+| Wear-upload feiler / form factor | Aktiver Wear OS i Play Console og bruk sporet `wear:internal` |
 | Signering feiler | Sjekk at `KEYSTORE_BASE64` og passordene stemmer |
 | Upload feiler med 403 | Service account mangler tilgang til appen eller testing track |
 

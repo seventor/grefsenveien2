@@ -7,8 +7,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_launcher_wear"
-        android:label="Grefsenveien"
+        android:icon="@mipmap/ic_app_launcher"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault">
 
@@ -27,17 +27,36 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".DoorbellImageActivity"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
         <service
             android:name=".ActionTileService"
             android:exported="true"
-            android:label="Grefsenveien Kontroll"
+            android:label="@string/wear_tile_label"
+            android:description="@string/wear_tile_description"
             android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
             <intent-filter>
                 <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
             </intent-filter>
             <meta-data
                 android:name="androidx.wear.tiles.PREVIEW"
-                android:resource="@drawable/ic_launcher_wear" />
+                android:resource="@drawable/ic_app_launcher_foreground" />
+        </service>
+
+        <service
+            android:name=".PhoneAuthListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/grefsenveien/user"
+                    android:scheme="wear" />
+            </intent-filter>
         </service>
     </application>
 

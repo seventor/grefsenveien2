@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Grefsenveien</string>
+    <string name="wear_garage">Garasje</string>
+    <string name="wear_gate">Port</string>
+    <string name="wear_camera">Kamera</string>
+    <string name="wear_camera_loading">Henter bilde…</string>
+    <string name="wear_camera_error">Kunne ikke hente bilde</string>
+    <string name="wear_login_required">Logg inn på telefon</string>
+    <string name="wear_tile_label">Grefsenveien</string>
+    <string name="wear_tile_description">Åpne garasje og port</string>
+</resources>

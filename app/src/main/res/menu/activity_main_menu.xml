@@ -11,17 +11,10 @@
         app:showAsAction="ifRoom" />
 
     <item
-        android:id="@+id/menu_tour"
+        android:id="@+id/menu_detaljer"
         android:checkable="true"
-        android:icon="@drawable/ic_tab_tour_outline"
-        android:title="@string/menu_tour"
-        app:showAsAction="ifRoom" />
-
-    <item
-        android:id="@+id/menu_tour_live"
-        android:checkable="true"
-        android:icon="@drawable/ic_tab_tour_live_outline"
-        android:title="@string/menu_tour_live"
+        android:icon="@drawable/ic_tab_info_outline"
+        android:title="@string/menu_detaljer"
         app:showAsAction="ifRoom" />
 
 </menu>

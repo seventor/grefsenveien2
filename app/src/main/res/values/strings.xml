@@ -3,6 +3,12 @@
     <string name="app_name">Grefsenveien</string>
     <string name="send_request">Send URL Request</string>
     <string name="menu_home">Hjem</string>
-    <string name="menu_tour">Tour sammenlagt</string>
-    <string name="menu_tour_live">Tour live</string>
+    <string name="menu_detaljer">Detaljer</string>
+    <string name="widget_open_port_label">Port</string>
+    <string name="widget_open_port_description">Åpne porten fra hjemskjermen</string>
+    <string name="widget_open_port_sending">Sender Port…</string>
+    <string name="widget_open_port_success">Port sendt</string>
+    <string name="widget_open_port_error">Port-feil (kode %1$d)</string>
+    <string name="widget_open_port_network_error">Nettverksfeil for Port</string>
+    <string name="widget_open_port_login_required">Logg inn i appen først</string>
 </resources>

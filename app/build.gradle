@@ -76,9 +76,8 @@ dependencies {
     implementation 'androidx.car.app:app:1.4.0'
     implementation 'androidx.car.app:app-projected:1.4.0'
 
-    // Google Play Services Wearable
+    // Google Play Services Wearable (Wear OS is published as a separate AAB)
     implementation 'com.google.android.gms:play-services-wearable:18.1.0'
-    wearApp project(':wear')
 
     // Google Sign-In
     implementation 'com.google.android.gms:play-services-auth:21.0.0'

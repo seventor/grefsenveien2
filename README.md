@@ -15,17 +15,23 @@ The application fetches a live-updated security camera image from an Amazon S3 b
 **Wear OS (`wear` module)**
 - Provides a dedicated Wear OS Tile (Widget) for immediate access from the watch face.
 - Interactive, native buttons to control the Garage and Gate without opening the full app.
+- Uses the same webhook POST payload as the phone app (token + signed-in user), with the user email synced from the phone via the Wear Data Layer.
 - Status feedback text directly on the watch face upon triggering Nabu Casa webhooks.
 
 **Phone App Companion**
-- Simple debug UI on the phone to test the Webhooks if not connected to a car.
+- Home screen with doorbell/mailbox cameras and Garage / Gate controls.
+- Detaljer screen with a scrollable, full-width list of the same dashboard widgets as Android Auto Detaljer (temperature, rain, lightning, cameras, rooms, sun path, etc.).
+- Home-screen widget with a **Port** button (same gate webhook as the app).
+- Tour de France screens remain available in Android Auto only.
 
 ## Project Structure
 
 ### `app` module
 - `MainCarScreen.java` - Core Android Auto logic: Handles `SurfaceCallback`, canvas drawing, S3 image scaling, and webhook triggers.
 - `CarAppService.java` - Android Auto entry point and validation service.
-- `MainActivity.java` - Main phone UI fallback with basic webhook testing buttons.
+- `MainActivity.java` - Phone UI: Hjem (cameras/controls) and Detaljer (scrollable dashboard widgets).
+- `DetailDashboardView.java` / `DetailDashboardFetcher.java` / `DetailDashboardRenderer.java` - Phone Detaljer dashboard (independent of Auto).
+- `OpenPortWidgetProvider.java` - Home-screen widget that opens the gate via webhook.
 
 ### `wear` module
 - `ActionTileService.java` - Native Wear OS Tile provider that handles the swipe-accessible widget.
@@ -41,7 +47,7 @@ The application fetches a live-updated security camera image from an Amazon S3 b
 6. Install and run the **`app`** module on the phone (debug), or use the **Desktop Head Unit (DHU)** emulator for the full Android Auto UI.
 7. Open Settings on Android device, goto Apps. Find Android Auto, click "More settings in app", the the three dost on top right, then Turn on Server for main unit.
 
-**Debug vs Play:** Local debug installs as `com.pixelspore.grefsenveien.debug` («Grefsenveien Debug», with a red DEBUG badge on the icon). The Play / release build stays as `com.pixelspore.grefsenveien`, so both can be installed on the same device at once. Push to `master` still uploads the signed release AAB to Play Internal Testing.
+**Debug vs Play:** Local debug installs as `com.pixelspore.grefsenveien.debug` («Grefsenveien Debug», with a red DEBUG badge on the icon). The Play / release build stays as `com.pixelspore.grefsenveien`, so both can be installed on the same device at once. Push to `master` uploads signed phone and Wear release AABs to Play Internal Testing.
 
 **Detailed testing guide (phone, DHU, car, Wear OS, troubleshooting):** [TESTING.md](TESTING.md)
 

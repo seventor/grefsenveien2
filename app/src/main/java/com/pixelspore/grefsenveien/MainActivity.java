@@ -35,7 +35,7 @@ import com.google.android.gms.tasks.Task;
 
 public class MainActivity extends AppCompatActivity {
 
-    private enum PhoneScreen { HOME, TOUR, TOUR_LIVE }
+    private enum PhoneScreen { HOME, DETALJER }
 
     private static final String PREF_PHONE_SCREEN = "phoneScreen";
 
@@ -43,8 +43,7 @@ public class MainActivity extends AppCompatActivity {
 
     private PhoneScreen currentScreen = PhoneScreen.HOME;
     private View homeContent;
-    private TourStandingsView tourContent;
-    private TourLiveView tourLiveContent;
+    private DetailDashboardView detailContent;
     private MaterialToolbar toolbar;
 
     private String garageStatus = "";
@@ -94,8 +93,7 @@ public class MainActivity extends AppCompatActivity {
 
         toolbar = findViewById(R.id.toolbar);
         homeContent = findViewById(R.id.homeContent);
-        tourContent = findViewById(R.id.tourContent);
-        tourLiveContent = findViewById(R.id.tourLiveContent);
+        detailContent = findViewById(R.id.detailContent);
         setupToolbarMenu();
 
         statusText = findViewById(R.id.statusText);
@@ -139,6 +137,7 @@ public class MainActivity extends AppCompatActivity {
                         GoogleSignInAccount account = GoogleSignIn.getLastSignedInAccount(this);
                         if (account != null && account.getEmail() != null) {
                             prefs.edit().putString("user_email", account.getEmail()).apply();
+                            WearUserSync.syncUserEmail(this, account.getEmail());
                             if (tvLoggedInAs != null) {
                                 tvLoggedInAs.setText("Innlogget som " + account.getEmail());
                             }
@@ -162,10 +161,8 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         if (currentScreen == PhoneScreen.HOME) {
             startHomeUpdaters();
-        } else if (currentScreen == PhoneScreen.TOUR) {
-            tourContent.startUpdating();
-        } else if (currentScreen == PhoneScreen.TOUR_LIVE) {
-            tourLiveContent.startUpdating();
+        } else if (currentScreen == PhoneScreen.DETALJER) {
+            detailContent.startUpdating();
         }
 
         // Oppdater felt med innlogget bruker
@@ -186,8 +183,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         super.onPause();
         stopHomeUpdaters();
-        tourContent.stopUpdating();
-        tourLiveContent.stopUpdating();
+        detailContent.stopUpdating();
     }
 
     private void setupToolbarMenu() {
@@ -197,12 +193,8 @@ public class MainActivity extends AppCompatActivity {
                 showPhoneScreen(PhoneScreen.HOME);
                 return true;
             }
-            if (id == R.id.menu_tour) {
-                showPhoneScreen(PhoneScreen.TOUR);
-                return true;
-            }
-            if (id == R.id.menu_tour_live) {
-                showPhoneScreen(PhoneScreen.TOUR_LIVE);
+            if (id == R.id.menu_detaljer) {
+                showPhoneScreen(PhoneScreen.DETALJER);
                 return true;
             }
             return false;
@@ -230,28 +222,19 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        if (previous == PhoneScreen.TOUR && screen != PhoneScreen.TOUR) {
-            tourContent.stopUpdating();
+        if (previous == PhoneScreen.DETALJER && screen != PhoneScreen.DETALJER) {
+            detailContent.stopUpdating();
         }
-        if (screen == PhoneScreen.TOUR && previous != PhoneScreen.TOUR) {
-            tourContent.startUpdating();
-        }
-
-        if (previous == PhoneScreen.TOUR_LIVE && screen != PhoneScreen.TOUR_LIVE) {
-            tourLiveContent.stopUpdating();
-        }
-        if (screen == PhoneScreen.TOUR_LIVE && previous != PhoneScreen.TOUR_LIVE) {
-            tourLiveContent.startUpdating();
+        if (screen == PhoneScreen.DETALJER && previous != PhoneScreen.DETALJER) {
+            detailContent.startUpdating();
         }
 
         homeContent.setVisibility(screen == PhoneScreen.HOME ? View.VISIBLE : View.GONE);
-        tourContent.setVisibility(screen == PhoneScreen.TOUR ? View.VISIBLE : View.GONE);
-        tourLiveContent.setVisibility(screen == PhoneScreen.TOUR_LIVE ? View.VISIBLE : View.GONE);
+        detailContent.setVisibility(screen == PhoneScreen.DETALJER ? View.VISIBLE : View.GONE);
 
         if (toolbar.getMenu() != null) {
             toolbar.getMenu().findItem(R.id.menu_home).setChecked(screen == PhoneScreen.HOME);
-            toolbar.getMenu().findItem(R.id.menu_tour).setChecked(screen == PhoneScreen.TOUR);
-            toolbar.getMenu().findItem(R.id.menu_tour_live).setChecked(screen == PhoneScreen.TOUR_LIVE);
+            toolbar.getMenu().findItem(R.id.menu_detaljer).setChecked(screen == PhoneScreen.DETALJER);
         }
 
         if (persist && prefs != null) {
@@ -261,6 +244,10 @@ public class MainActivity extends AppCompatActivity {
 
     private PhoneScreen parsePhoneScreen(String saved) {
         if (saved == null) {
+            return PhoneScreen.HOME;
+        }
+        // Migrer bort gamle Tour-skjermvalg fra tidligere app-versjoner.
+        if ("TOUR".equals(saved) || "TOUR_LIVE".equals(saved)) {
             return PhoneScreen.HOME;
         }
         try {
@@ -300,6 +287,8 @@ public class MainActivity extends AppCompatActivity {
             // Need to sign in
             Intent signInIntent = mGoogleSignInClient.getSignInIntent();
             signInLauncher.launch(signInIntent);
+        } else {
+            WearUserSync.syncUserEmail(this, savedEmail);
         }
     }
 
@@ -308,6 +297,7 @@ public class MainActivity extends AppCompatActivity {
             GoogleSignInAccount account = completedTask.getResult(ApiException.class);
             if (account != null && account.getEmail() != null) {
                 prefs.edit().putString("user_email", account.getEmail()).apply();
+                WearUserSync.syncUserEmail(this, account.getEmail());
                 // Oppdater "Innlogget som"-feltet umiddelbart
                 if (tvLoggedInAs != null) {
                     tvLoggedInAs.setText("Innlogget som " + account.getEmail());
@@ -332,6 +322,7 @@ public class MainActivity extends AppCompatActivity {
         if (mGoogleSignInClient != null) {
             mGoogleSignInClient.signOut().addOnCompleteListener(this, task -> {
                 prefs.edit().remove("user_email").apply();
+                WearUserSync.syncUserEmail(this, null);
                 checkLoginStatus();
             });
         }

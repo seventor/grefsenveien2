@@ -273,14 +273,8 @@
 
     </LinearLayout>
 
-    <com.pixelspore.grefsenveien.TourStandingsView
-        android:id="@+id/tourContent"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone" />
-
-    <com.pixelspore.grefsenveien.TourLiveView
-        android:id="@+id/tourLiveContent"
+    <com.pixelspore.grefsenveien.DetailDashboardView
+        android:id="@+id/detailContent"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />

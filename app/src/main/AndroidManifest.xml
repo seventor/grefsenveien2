@@ -33,6 +33,18 @@
             </intent-filter>
         </service>
 
+        <receiver
+            android:name=".OpenPortWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_open_port_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/open_port_widget_info" />
+        </receiver>
+
         <!-- Android Auto metadata -->
         <meta-data
             android:name="androidx.car.app.minCarApiLevel"

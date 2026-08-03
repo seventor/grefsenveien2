@@ -1,102 +1,149 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/black"
-    android:padding="8dp"
+    android:background="#000000"
     tools:context=".MainActivity"
     tools:deviceIds="wear">
 
-    <!-- Center everything perfectly on the round screen -->
+    <!-- Buttons only — truly centered on the watch face -->
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:gravity="center"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:gravity="center_horizontal"
         android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Grefsenveien"
-            android:textColor="@android:color/white"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="12dp" />
-
-        <!-- Side-by-side button container -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="horizontal">
 
-            <!-- Garage Button -->
+            <!-- Garage -->
             <LinearLayout
-                android:id="@+id/btnGarage"
-                android:layout_width="80dp"
-                android:layout_height="80dp"
-                android:background="@drawable/circle_bg_garage"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:clickable="true"
-                android:focusable="true"
-                android:layout_marginEnd="16dp">
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="10dp"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
 
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:src="@drawable/ic_garage"
-                    android:tint="?android:attr/colorPrimary" />
+                <FrameLayout
+                    android:id="@+id/btnGarage"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:background="@drawable/circle_bg_garage"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackgroundBorderless">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_gravity="center"
+                        android:contentDescription="@string/wear_garage"
+                        android:src="@drawable/ic_material_garage_door"
+                        android:tint="#FFFFFF" />
+                </FrameLayout>
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="56dp"
                     android:layout_height="wrap_content"
-                    android:text="Garasje"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp"
+                    android:gravity="center"
+                    android:text="@string/wear_garage"
+                    android:textColor="#FFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- Gate Button -->
+            <!-- Gate -->
             <LinearLayout
-                android:id="@+id/btnGate"
-                android:layout_width="80dp"
-                android:layout_height="80dp"
-                android:background="@drawable/circle_bg_gate"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:clickable="true"
-                android:focusable="true">
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
 
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:src="@drawable/ic_gate"
-                    android:tint="?android:attr/colorPrimary" />
+                <FrameLayout
+                    android:id="@+id/btnGate"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:background="@drawable/circle_bg_gate"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackgroundBorderless">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_gravity="center"
+                        android:contentDescription="@string/wear_gate"
+                        android:src="@drawable/ic_material_outdoor_garden"
+                        android:tint="#FFFFFF" />
+                </FrameLayout>
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="56dp"
                     android:layout_height="wrap_content"
-                    android:text="Port"
-                    android:textColor="?android:attr/textColorPrimary"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:layout_marginTop="4dp" />
+                    android:layout_marginTop="2dp"
+                    android:gravity="center"
+                    android:text="@string/wear_gate"
+                    android:textColor="#FFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvStatus"
+        <!-- Doorbell camera -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp"
-            android:gravity="center"
-            android:text="" />
-            
+            android:layout_marginTop="8dp"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
+
+            <FrameLayout
+                android:id="@+id/btnCamera"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/circle_bg_camera"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?android:attr/selectableItemBackgroundBorderless">
+
+                <ImageView
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@string/wear_camera"
+                    android:src="@drawable/ic_doorbell_camera"
+                    android:tint="#FFFFFF" />
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="64dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:text="@string/wear_camera"
+                android:textColor="#FFFFFF"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:gravity="center"
+        android:maxLines="2"
+        android:paddingBottom="14dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text=""
+        android:textColor="#B0B0B0"
+        android:textSize="9sp" />
 </FrameLayout>

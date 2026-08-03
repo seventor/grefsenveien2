@@ -60,18 +60,37 @@ jobs:
             echo "Commit: ${GITHUB_SHA::7}"
           } > whatsnew/en-US/default.txt
 
-      - name: Build release AAB
+      - name: Build phone and Wear release AABs
         run: |
-          ./gradlew :app:bundleRelease \
-            -PversionCodeOverride=$((GITHUB_RUN_NUMBER + 16)) \
-            -PversionNameOverride=2.13.${GITHUB_RUN_NUMBER}
+          VERSION_NAME="2.13.${GITHUB_RUN_NUMBER}"
+          PHONE_VERSION_CODE=$((GITHUB_RUN_NUMBER + 16))
+          # Wear needs a distinct versionCode in the same Play listing.
+          WEAR_VERSION_CODE=$((PHONE_VERSION_CODE + 1000000))
 
-      - name: Upload to Google Play Internal Testing
+          ./gradlew :app:bundleRelease \
+            -PversionCodeOverride=${PHONE_VERSION_CODE} \
+            -PversionNameOverride=${VERSION_NAME}
+
+          ./gradlew :wear:bundleRelease \
+            -PversionCodeOverride=${WEAR_VERSION_CODE} \
+            -PversionNameOverride=${VERSION_NAME}
+
+      - name: Upload phone AAB to Play Internal Testing
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: com.pixelspore.grefsenveien
           releaseFiles: app/build/outputs/bundle/release/app-release.aab
-          tracks: internal
+          track: internal
+          status: completed
+          whatsNewDirectory: whatsnew
+
+      - name: Upload Wear AAB to Play Wear Internal Testing
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.pixelspore.grefsenveien
+          releaseFiles: wear/build/outputs/bundle/release/wear-release.aab
+          track: wear:internal
           status: completed
           whatsNewDirectory: whatsnew
