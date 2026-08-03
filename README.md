@@ -38,8 +38,10 @@ The application fetches a live-updated security camera image from an Amazon S3 b
 3. Sync Gradle (**File → Sync Project with Gradle Files**).
 4. Connect a physical Android phone.
 5. Accept debugging on the phone.
-6. Install and run the **`app`** module on the phone, or use the **Desktop Head Unit (DHU)** emulator for the full Android Auto UI.
-7. Open Setti ngs on Android device, goto Apps. Find Android Auto, click "More settings in app", the the three dost on top right, then Turn on Server for main unit.
+6. Install and run the **`app`** module on the phone (debug), or use the **Desktop Head Unit (DHU)** emulator for the full Android Auto UI.
+7. Open Settings on Android device, goto Apps. Find Android Auto, click "More settings in app", the the three dost on top right, then Turn on Server for main unit.
+
+**Debug vs Play:** Local debug installs as `com.pixelspore.grefsenveien.debug` («Grefsenveien Debug», with a red DEBUG badge on the icon). The Play / release build stays as `com.pixelspore.grefsenveien`, so both can be installed on the same device at once. Push to `master` still uploads the signed release AAB to Play Internal Testing.
 
 **Detailed testing guide (phone, DHU, car, Wear OS, troubleshooting):** [TESTING.md](TESTING.md)
 

@@ -93,12 +93,13 @@ Fra prosjektroten:
 ./gradlew :app:installDebug
 ```
 
-Start appen manuelt på telefonen (ikonet **Grefsenveien**), eller:
+Start appen manuelt på telefonen (ikonet **Grefsenveien Debug**, med rød DEBUG-banner), eller:
 
 ```bash
-adb shell am start -n com.pixelspore.grefsenveien/.MainActivity
+adb shell am start -n com.pixelspore.grefsenveien.debug/.MainActivity
 ```
 
+Debug-builden har pakkenavn `com.pixelspore.grefsenveien.debug` og kan ligge side om side med Play-versjonen (`com.pixelspore.grefsenveien`).
 ### Hva du kan teste på telefonen
 
 - Webhook-knapper for garasje og port
@@ -125,7 +126,8 @@ På telefonen: **Innstillinger** → **Om telefonen** → trykk **Byggenummer** 
 4. Trykk på **versjonsnummeret** omtrent **10 ganger** til utviklermodus aktiveres.
 5. Slå på valg som ligner på:
    - **Ukjente kilder** / **Add unrecognized apps**
-   - Tillat appen **Grefsenveien** (`com.pixelspore.grefsenveien`)
+   - Tillat appen **Grefsenveien Debug** (`com.pixelspore.grefsenveien.debug`) for lokal testing
+   - (Play-versjonen `com.pixelspore.grefsenveien` kan være installert samtidig)
 
 Uten dette vises ikke debug-builds i DHU eller i bilen.
 
@@ -302,8 +304,10 @@ Start deretter DHU på nytt.
 
 | Element | Verdi |
 |---------|--------|
-| Pakkenavn | `com.pixelspore.grefsenveien` |
-| App-navn på enheten | Grefsenveien |
+| Pakkenavn (Play / release) | `com.pixelspore.grefsenveien` |
+| Pakkenavn (lokal debug) | `com.pixelspore.grefsenveien.debug` |
+| App-navn på enheten (release) | Grefsenveien |
+| App-navn på enheten (debug) | Grefsenveien Debug |
 | Android Auto entry point | `CarAppService` |
 | Hovedskjerm i bil | `MainCarScreen` |
 | Telefon-aktivitet | `MainActivity` |

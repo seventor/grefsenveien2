@@ -12,6 +12,8 @@ Workflow-fil: [`.github/workflows/play-internal-release.yml`](.github/workflows/
 4. `versionName` settes til `2.13.<run-nummer>` (f.eks. `2.13.42`)
 5. AAB lastes opp til **internal**-sporet med status **completed**
 
+Release-builden bruker pakkenavn `com.pixelspore.grefsenveien` (uten `.debug`). Lokal `installDebug` bruker `com.pixelspore.grefsenveien.debug`, så debug og Play-versjon kan være installert samtidig.
+
 ## Forutsetninger i Google Play Console
 
 Appen må allerede være opprettet i Play Console med et aktivt **Internal testing**-spor (som du har i dag).

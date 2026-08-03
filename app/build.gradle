@@ -53,6 +53,12 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
         }
+        debug {
+            // Separate package so Studio debug can sit beside Play release.
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+            resValue "string", "app_name", "Grefsenveien Debug"
+        }
     }
 
     compileOptions {

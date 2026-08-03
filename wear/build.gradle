@@ -47,6 +47,11 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release
         }
+        debug {
+            // Match phone debug package so Wear pairs with the debug app.
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
     }
 
     compileOptions {
