@@ -3676,18 +3676,20 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         int phoneBattery = DetailDashboardRenderer.deviceBatteryPercent(getCarContext());
         if (phoneBattery >= 0) {
             String batStr = String.format(Locale.getDefault(), "%d%%", phoneBattery);
+            boolean phoneCharging = DetailDashboardRenderer.isDeviceBatteryCharging(getCarContext());
             try {
                 android.graphics.drawable.Drawable batD = androidx.core.content.ContextCompat.getDrawable(
-                        getCarContext(), R.drawable.ic_battery);
+                        getCarContext(),
+                        phoneCharging ? R.drawable.ic_battery_charging : R.drawable.ic_battery);
                 if (batD != null) {
                     batD.setBounds((int) naRightX, (int) naRow3IconY,
                             (int) (naRightX + naIconSize), (int) (naRow3IconY + naIconSize));
                     batD.draw(c);
                 } else {
-                    drawBatteryIcon(c, naRightX, naRow3IconY, naIconSize, naValP);
+                    drawBatteryIcon(c, naRightX, naRow3IconY, naIconSize, naValP, phoneCharging);
                 }
             } catch (Exception e) {
-                drawBatteryIcon(c, naRightX, naRow3IconY, naIconSize, naValP);
+                drawBatteryIcon(c, naRightX, naRow3IconY, naIconSize, naValP, phoneCharging);
             }
             c.drawText(batStr, naRightX + naIconSize + naIconGap, naRow3Baseline, naValP);
         }
@@ -4153,7 +4155,8 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         canvas.drawPath(path, p);
     }
 
-    private void drawBatteryIcon(android.graphics.Canvas canvas, float x, float y, float size, android.graphics.Paint paint) {
+    private void drawBatteryIcon(android.graphics.Canvas canvas, float x, float y, float size,
+            android.graphics.Paint paint, boolean charging) {
         android.graphics.Paint p = new android.graphics.Paint(paint);
         p.setStyle(android.graphics.Paint.Style.FILL);
         p.setAntiAlias(true);
@@ -4164,8 +4167,31 @@ public class MainCarScreen extends Screen implements SurfaceCallback {
         float bodyBot = y + size * 0.90f;
         float radius = size * 0.06f;
         float tipLeft = x + (size - tipW) / 2f;
-        canvas.drawRoundRect(new android.graphics.RectF(tipLeft, y + size * 0.08f, tipLeft + tipW, bodyTop + radius), radius, radius, p);
-        canvas.drawRoundRect(new android.graphics.RectF(bodyLeft, bodyTop, bodyRight, bodyBot), radius, radius, p);
+        android.graphics.RectF tip = new android.graphics.RectF(
+                tipLeft, y + size * 0.08f, tipLeft + tipW, bodyTop + radius);
+        android.graphics.RectF body = new android.graphics.RectF(bodyLeft, bodyTop, bodyRight, bodyBot);
+        if (!charging) {
+            canvas.drawRoundRect(tip, radius, radius, p);
+            canvas.drawRoundRect(body, radius, radius, p);
+            return;
+        }
+        android.graphics.Path battery = new android.graphics.Path();
+        battery.addRoundRect(tip, radius, radius, android.graphics.Path.Direction.CW);
+        battery.addRoundRect(body, radius, radius, android.graphics.Path.Direction.CW);
+        battery.op(chargingBoltPath(x, y, size), android.graphics.Path.Op.DIFFERENCE);
+        canvas.drawPath(battery, p);
+    }
+
+    private android.graphics.Path chargingBoltPath(float x, float y, float size) {
+        android.graphics.Path bolt = new android.graphics.Path();
+        bolt.moveTo(x + size * 0.444f, y + size * 0.82f);
+        bolt.lineTo(x + size * 0.444f, y + size * 0.60f);
+        bolt.lineTo(x + size * 0.332f, y + size * 0.60f);
+        bolt.lineTo(x + size * 0.556f, y + size * 0.30f);
+        bolt.lineTo(x + size * 0.556f, y + size * 0.52f);
+        bolt.lineTo(x + size * 0.668f, y + size * 0.52f);
+        bolt.close();
+        return bolt;
     }
 
     private void drawRainIcon(android.graphics.Canvas canvas, float x, float y, float size, android.graphics.Paint paint) {

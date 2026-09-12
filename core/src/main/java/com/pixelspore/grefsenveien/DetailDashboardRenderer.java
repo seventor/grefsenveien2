@@ -288,7 +288,11 @@ public final class DetailDashboardRenderer {
         int batteryPercent = deviceBatteryPercent(ctx);
         if (batteryPercent >= 0) {
             String batStr = String.format(Locale.getDefault(), "%d%%", batteryPercent);
-            drawIconWithFallback(c, ctx, R.drawable.ic_battery, naRightX, naRow3IconY, naIconSize, S, naValP, IconType.BATTERY);
+            boolean charging = isDeviceBatteryCharging(ctx);
+            drawIconWithFallback(c, ctx,
+                    charging ? R.drawable.ic_battery_charging : R.drawable.ic_battery,
+                    naRightX, naRow3IconY, naIconSize, S, naValP,
+                    charging ? IconType.BATTERY_CHARGING : IconType.BATTERY);
             c.drawText(batStr, naRightX + naIconSize + naIconGap, naRow3Baseline, naValP);
         }
     }
@@ -299,13 +303,7 @@ public final class DetailDashboardRenderer {
     public static int deviceBatteryPercent(@Nullable Context ctx) {
         if (ctx == null) return -1;
         try {
-            IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-            Intent battery;
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
-                battery = ctx.registerReceiver(null, filter, Context.RECEIVER_NOT_EXPORTED);
-            } else {
-                battery = ctx.registerReceiver(null, filter);
-            }
+            Intent battery = registerBatteryStatus(ctx);
             if (battery != null) {
                 if (!battery.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true)) return -1;
                 int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
@@ -323,6 +321,35 @@ public final class DetailDashboardRenderer {
         } catch (Exception ignored) {
             return -1;
         }
+    }
+
+    /**
+     * True when the device battery is currently being charged. A fully charged battery on
+     * a plugged-in charger does not count as charging.
+     */
+    public static boolean isDeviceBatteryCharging(@Nullable Context ctx) {
+        if (ctx == null) return false;
+        try {
+            Intent battery = registerBatteryStatus(ctx);
+            if (battery != null) {
+                int status = battery.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+                if (status == BatteryManager.BATTERY_STATUS_CHARGING) return true;
+                if (status != -1 && status != BatteryManager.BATTERY_STATUS_UNKNOWN) return false;
+            }
+            BatteryManager bm = (BatteryManager) ctx.getSystemService(Context.BATTERY_SERVICE);
+            return bm != null && bm.isCharging();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    @Nullable
+    private static Intent registerBatteryStatus(@NonNull Context ctx) {
+        IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            return ctx.registerReceiver(null, filter, Context.RECEIVER_NOT_EXPORTED);
+        }
+        return ctx.registerReceiver(null, filter);
     }
 
     // -------------------------------------------------------------------------
@@ -1363,7 +1390,7 @@ public final class DetailDashboardRenderer {
     // Icon drawing helpers
     // -------------------------------------------------------------------------
 
-    private enum IconType { THERMOMETER, DROPLET, RAIN, BATTERY }
+    private enum IconType { THERMOMETER, DROPLET, RAIN, BATTERY, BATTERY_CHARGING }
 
     private static void drawIconWithFallback(Canvas c, @Nullable Context ctx, int drawableRes,
             float x, float y, float size, float S, Paint paint, IconType fallback) {
@@ -1381,7 +1408,8 @@ public final class DetailDashboardRenderer {
             case THERMOMETER: drawThermometerIcon(c, x, y, size, S, paint); break;
             case DROPLET: drawDropletIcon(c, x, y, size, S, paint); break;
             case RAIN: drawRainIcon(c, x, y, size, paint); break;
-            case BATTERY: drawBatteryIcon(c, x, y, size, paint); break;
+            case BATTERY: drawBatteryIcon(c, x, y, size, paint, false); break;
+            case BATTERY_CHARGING: drawBatteryIcon(c, x, y, size, paint, true); break;
         }
     }
 
@@ -1451,7 +1479,8 @@ public final class DetailDashboardRenderer {
         }
     }
 
-    private static void drawBatteryIcon(Canvas canvas, float x, float y, float size, Paint paint) {
+    private static void drawBatteryIcon(Canvas canvas, float x, float y, float size, Paint paint,
+            boolean charging) {
         Paint p = new Paint(paint);
         p.setStyle(Paint.Style.FILL);
         p.setAntiAlias(true);
@@ -1462,7 +1491,29 @@ public final class DetailDashboardRenderer {
         float bodyBot = y + size * 0.90f;
         float radius = size * 0.06f;
         float tipLeft = x + (size - tipW) / 2f;
-        canvas.drawRoundRect(new RectF(tipLeft, y + size * 0.08f, tipLeft + tipW, bodyTop + radius), radius, radius, p);
-        canvas.drawRoundRect(new RectF(bodyLeft, bodyTop, bodyRight, bodyBot), radius, radius, p);
+        RectF tip = new RectF(tipLeft, y + size * 0.08f, tipLeft + tipW, bodyTop + radius);
+        RectF body = new RectF(bodyLeft, bodyTop, bodyRight, bodyBot);
+        if (!charging) {
+            canvas.drawRoundRect(tip, radius, radius, p);
+            canvas.drawRoundRect(body, radius, radius, p);
+            return;
+        }
+        Path battery = new Path();
+        battery.addRoundRect(tip, radius, radius, Path.Direction.CW);
+        battery.addRoundRect(body, radius, radius, Path.Direction.CW);
+        battery.op(chargingBoltPath(x, y, size), Path.Op.DIFFERENCE);
+        canvas.drawPath(battery, p);
+    }
+
+    private static Path chargingBoltPath(float x, float y, float size) {
+        Path bolt = new Path();
+        bolt.moveTo(x + size * 0.444f, y + size * 0.82f);
+        bolt.lineTo(x + size * 0.444f, y + size * 0.60f);
+        bolt.lineTo(x + size * 0.332f, y + size * 0.60f);
+        bolt.lineTo(x + size * 0.556f, y + size * 0.30f);
+        bolt.lineTo(x + size * 0.556f, y + size * 0.52f);
+        bolt.lineTo(x + size * 0.668f, y + size * 0.52f);
+        bolt.close();
+        return bolt;
     }
 }
