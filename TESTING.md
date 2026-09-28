@@ -247,12 +247,12 @@ Du kan kopiere og tilpasse filene for andre oppløsninger.
 
 1. Par en Wear OS-klokke eller start Wear-emulator i Android Studio.
 2. Velg modulen **`wear`** og kjør mot enheten.
-3. Test appen i applisten (Garasje / Port).
+3. Test appen i applisten (Garasje / Port / Kamera).
 4. Legg til **Tile** (anbefalt for rask bruk):
    - Sveip fra urskiven til Tile-karusellen
    - Trykk lenge på en Tile → **Edit** / rediger
    - **Add tiles** → velg **Grefsenveien**
-   - Sveip til den for å åpne garasje/port uten å åpne appen
+   - Sveip til den for å åpne garasje/port, eller trykk **Kamera** for fullscreen-bilde
 
 ```bash
 ./gradlew :wear:installDebug

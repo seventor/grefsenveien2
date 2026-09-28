@@ -30,9 +30,15 @@
 
         <activity
             android:name=".DoorbellImageActivity"
-            android:exported="false"
+            android:exported="true"
             android:taskAffinity=""
-            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <!-- Exported so the Tile renderer can LaunchAction this fullscreen camera view. -->
+            <intent-filter>
+                <action android:name="com.pixelspore.grefsenveien.wear.OPEN_CAMERA" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".ActionTileService"
             android:exported="true"

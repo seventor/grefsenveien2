@@ -29,19 +29,22 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Wear OS Tile with Garasje / Port shortcuts (swipe from the watch face).
+ * Wear OS Tile with Garasje / Port / Kamera shortcuts (swipe from the watch face).
  */
 public class ActionTileService extends TileService {
 
     private static final String TAG = "ActionTileService";
-    private static final String RESOURCES_VERSION = "4";
+    private static final String RESOURCES_VERSION = "5";
     private static final String ID_CLICK_GARAGE = "click_garage";
     private static final String ID_CLICK_GATE = "click_gate";
+    private static final String ID_CLICK_CAMERA = "click_camera";
     private static final String RES_ID_GARAGE = "ic_garage";
     private static final String RES_ID_GATE = "ic_gate";
+    private static final String RES_ID_CAMERA = "ic_camera";
 
     private static final int COLOR_GARAGE = 0xFF1B6BC8;
     private static final int COLOR_GATE = 0xFF2E8B57;
+    private static final int COLOR_CAMERA = 0xFF5A6270;
     private static final int COLOR_ON_BUTTON = 0xFFFFFFFF;
     private static final int COLOR_STATUS = 0xFFB0B0B0;
 
@@ -94,6 +97,7 @@ public class ActionTileService extends TileService {
                 .setVersion(RESOURCES_VERSION)
                 .addIdToImageMapping(RES_ID_GARAGE, imageResource(R.drawable.ic_material_garage_door))
                 .addIdToImageMapping(RES_ID_GATE, imageResource(R.drawable.ic_material_outdoor_garden))
+                .addIdToImageMapping(RES_ID_CAMERA, imageResource(R.drawable.ic_doorbell_camera))
                 .build());
     }
 
@@ -119,18 +123,35 @@ public class ActionTileService extends TileService {
                 .setOnClick(new ActionBuilders.LoadAction.Builder().build())
                 .build();
 
+        ModifiersBuilders.Clickable cameraClick = new ModifiersBuilders.Clickable.Builder()
+                .setId(ID_CLICK_CAMERA)
+                .setOnClick(new ActionBuilders.LaunchAction.Builder()
+                        .setAndroidActivity(new ActionBuilders.AndroidActivity.Builder()
+                                .setClassName(DoorbellImageActivity.class.getName())
+                                .setPackageName(getPackageName())
+                                .build())
+                        .build())
+                .build();
+
         Button garageButton = new Button.Builder(this, garageClick)
                 .setContentDescription(getString(R.string.wear_garage))
                 .setIconContent(RES_ID_GARAGE)
                 .setButtonColors(new ButtonColors(COLOR_GARAGE, COLOR_ON_BUTTON))
-                .setSize(DimensionBuilders.dp(56))
+                .setSize(DimensionBuilders.dp(52))
                 .build();
 
         Button gateButton = new Button.Builder(this, gateClick)
                 .setContentDescription(getString(R.string.wear_gate))
                 .setIconContent(RES_ID_GATE)
                 .setButtonColors(new ButtonColors(COLOR_GATE, COLOR_ON_BUTTON))
-                .setSize(DimensionBuilders.dp(56))
+                .setSize(DimensionBuilders.dp(52))
+                .build();
+
+        Button cameraButton = new Button.Builder(this, cameraClick)
+                .setContentDescription(getString(R.string.wear_camera))
+                .setIconContent(RES_ID_CAMERA)
+                .setButtonColors(new ButtonColors(COLOR_CAMERA, COLOR_ON_BUTTON))
+                .setSize(DimensionBuilders.dp(48))
                 .build();
 
         Text title = new Text.Builder(this, statusText)
@@ -140,16 +161,26 @@ public class ActionTileService extends TileService {
                 .setOverflow(LayoutElementBuilders.TEXT_OVERFLOW_ELLIPSIZE_END)
                 .build();
 
-        // One column per action so the label stays centered under its circle.
-        LayoutElementBuilders.Row content = new LayoutElementBuilders.Row.Builder()
+        // Match the Wear app: Garasje / Port on the first row, Kamera centered below.
+        LayoutElementBuilders.Row topRow = new LayoutElementBuilders.Row.Builder()
                 .setWidth(DimensionBuilders.wrap())
                 .setHeight(DimensionBuilders.wrap())
                 .setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_CENTER)
-                .addContent(buttonWithLabel(garageButton, getString(R.string.wear_garage)))
+                .addContent(buttonWithLabel(garageButton, getString(R.string.wear_garage), 60))
                 .addContent(new LayoutElementBuilders.Spacer.Builder()
-                        .setWidth(DimensionBuilders.dp(16))
+                        .setWidth(DimensionBuilders.dp(12))
                         .build())
-                .addContent(buttonWithLabel(gateButton, getString(R.string.wear_gate)))
+                .addContent(buttonWithLabel(gateButton, getString(R.string.wear_gate), 60))
+                .build();
+
+        LayoutElementBuilders.Column content = new LayoutElementBuilders.Column.Builder()
+                .setWidth(DimensionBuilders.wrap())
+                .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
+                .addContent(topRow)
+                .addContent(new LayoutElementBuilders.Spacer.Builder()
+                        .setHeight(DimensionBuilders.dp(4))
+                        .build())
+                .addContent(buttonWithLabel(cameraButton, getString(R.string.wear_camera), 56))
                 .build();
 
         return new PrimaryLayout.Builder(deviceParams)
@@ -159,11 +190,11 @@ public class ActionTileService extends TileService {
     }
 
     private LayoutElementBuilders.LayoutElement buttonWithLabel(
-            Button button, String label) {
+            Button button, String label, float columnDp) {
         LayoutElementBuilders.Text labelText = new LayoutElementBuilders.Text.Builder()
                 .setText(label)
                 .setFontStyle(new LayoutElementBuilders.FontStyle.Builder()
-                        .setSize(DimensionBuilders.sp(11))
+                        .setSize(DimensionBuilders.sp(10))
                         .setColor(ColorBuilders.argb(COLOR_ON_BUTTON))
                         .build())
                 .setMaxLines(1)
@@ -172,18 +203,18 @@ public class ActionTileService extends TileService {
                 .build();
 
         LayoutElementBuilders.Box labelBox = new LayoutElementBuilders.Box.Builder()
-                .setWidth(DimensionBuilders.dp(64))
+                .setWidth(DimensionBuilders.dp(columnDp))
                 .setHeight(DimensionBuilders.wrap())
                 .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
                 .addContent(labelText)
                 .build();
 
         return new LayoutElementBuilders.Column.Builder()
-                .setWidth(DimensionBuilders.dp(64))
+                .setWidth(DimensionBuilders.dp(columnDp))
                 .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
                 .addContent(button)
                 .addContent(new LayoutElementBuilders.Spacer.Builder()
-                        .setHeight(DimensionBuilders.dp(4))
+                        .setHeight(DimensionBuilders.dp(2))
                         .build())
                 .addContent(labelBox)
                 .build();

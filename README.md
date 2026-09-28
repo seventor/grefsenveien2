@@ -15,7 +15,7 @@ The application fetches a live-updated security camera image from an Amazon S3 b
 
 **Wear OS (`wear` module)**
 - Provides a dedicated Wear OS Tile (Widget) for immediate access from the watch face.
-- Interactive, native buttons to control the Garage and Gate without opening the full app.
+- Interactive, native buttons to control the Garage and Gate, plus a camera button that opens the doorbell image full-screen.
 - Uses the same webhook POST payload as the phone app (token + signed-in user), with the user email synced from the phone via the Wear Data Layer.
 - Status feedback text directly on the watch face upon triggering Nabu Casa webhooks.
 
@@ -46,6 +46,7 @@ The application fetches a live-updated security camera image from an Amazon S3 b
 ### `wear` module
 - `ActionTileService.java` - Native Wear OS Tile provider that handles the swipe-accessible widget.
 - `MainActivity.java` - Basic fallback activity for the Wear OS app grid.
+- `DoorbellImageActivity.java` - Full-screen doorbell camera image opened from the app and Tile.
 
 ### `tv` module
 - `TvMainActivity.java` - Google TV entry point: controls + Google Sign-In.
