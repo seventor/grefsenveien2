@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId "com.pixelspore.grefsenveien"
-        minSdk 23
+        minSdk 24
         targetSdk 35
 
         def versionCodeOverride = project.findProperty('versionCodeOverride')
